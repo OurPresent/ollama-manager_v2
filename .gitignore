@@ -1,0 +1,63 @@
+# Dependencies
+node_modules/
+pnpm_modules/
+
+# Build outputs
+dist/
+build/
+.vite/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+
+# Database files (sensitive and can be regenerated)
+*.db
+*.sqlite
+*.sqlite3
+server/memory.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test coverage
+coverage/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Package manager files (optional, uncomment if needed)
+# pnpm-lock.yaml
+# package-lock.json
+# yarn.lock
