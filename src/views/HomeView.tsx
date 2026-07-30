@@ -1,7 +1,7 @@
 import React from 'react';
 import { OllamaModel, ActiveView } from '../types';
 import { MetricCard } from '../components/MetricCard';
-import { Cpu, Terminal, ShieldCheck, Activity, ArrowRight, MessageSquare, Bot, Box } from 'lucide-react';
+import { Cpu, Terminal, ArrowRight, MessageSquare, Bot, Box, Play } from 'lucide-react';
 
 interface Props {
   isOllamaOnline: boolean;
@@ -65,14 +65,26 @@ export const HomeView: React.FC<Props> = ({ isOllamaOnline, models, setActiveVie
 
           <button
             onClick={() => setActiveView('agents')}
+            className="p-4 bg-zinc-900/40 border border-zinc-800 rounded-xl text-left hover:border-emerald-500/40 transition group"
+          >
+            <div className="flex justify-between items-center mb-2">
+              <Bot className="w-5 h-5 text-emerald-400" />
+              <ArrowRight className="w-4 h-4 text-zinc-500 group-hover:text-emerald-400 transition" />
+            </div>
+            <h3 className="font-mono text-sm font-bold text-zinc-200">Gestor de Agentes</h3>
+            <p className="text-xs text-zinc-400 mt-1">Administra y configura tus agentes especializados.</p>
+          </button>
+
+          <button
+            onClick={() => setActiveView('planes')}
             className="p-4 bg-zinc-900/40 border border-zinc-800 rounded-xl text-left hover:border-blue-500/40 transition group"
           >
             <div className="flex justify-between items-center mb-2">
-              <Bot className="w-5 h-5 text-blue-400" />
+              <Play className="w-5 h-5 text-blue-400" />
               <ArrowRight className="w-4 h-4 text-zinc-500 group-hover:text-blue-400 transition" />
             </div>
-            <h3 className="font-mono text-sm font-bold text-zinc-200">Pipeline de Agentes</h3>
-            <p className="text-xs text-zinc-400 mt-1">Orquesta agentes paso a paso (PM, Backend, Frontend, QA, DevOps).</p>
+            <h3 className="font-mono text-sm font-bold text-zinc-200">Ejecución de Planes</h3>
+            <p className="text-xs text-zinc-400 mt-1">Genera y ejecuta planes técnicos con pipeline de agentes.</p>
           </button>
 
           <button

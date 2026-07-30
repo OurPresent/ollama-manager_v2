@@ -5,6 +5,7 @@ import { Sidebar } from './components/Sidebar';
 import { HomeView } from './views/HomeView';
 import { ChatView } from './views/ChatView';
 import { AgentsView } from './views/AgentsView';
+import { PlanesView } from './views/PlanesView';
 import { OllamaView } from './views/OllamaView';
 import { PlaygroundView } from './views/PlaygroundView';
 import { HistoryView } from './views/HistoryView';
@@ -62,6 +63,13 @@ export const App: React.FC = () => {
         )}
         {activeView === 'agents' && (
           <AgentsView
+            selectedModel={selectedModel}
+            projectInfo={projectInfo}
+            projectContext={projectContext}
+          />
+        )}
+        {activeView === 'planes' && (
+          <PlanesView
             selectedModel={selectedModel}
             projectInfo={projectInfo}
             projectContext={projectContext}
