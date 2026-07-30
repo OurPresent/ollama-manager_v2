@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ActiveView, OllamaModel } from './types';
+import { ActiveView, OllamaModel, ProjectInfo } from './types';
 import { checkOllamaStatus, fetchInstalledModels } from './services/ollama';
 import { Sidebar } from './components/Sidebar';
 import { HomeView } from './views/HomeView';
@@ -14,7 +14,7 @@ export const App: React.FC = () => {
   const [isOllamaOnline, setIsOllamaOnline] = useState(false);
   const [models, setModels] = useState<OllamaModel[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('');
-  const [projectName, setProjectName] = useState<string>('Proyecto_Demo');
+  const [projectInfo, setProjectInfo] = useState<ProjectInfo>({ name: 'Proyecto_Demo', path: '' });
   const [projectContext, setProjectContext] = useState<string>('// Contexto general del proyecto...');
 
   const refreshModels = async () => {
@@ -44,8 +44,8 @@ export const App: React.FC = () => {
         models={models}
         selectedModel={selectedModel}
         setSelectedModel={setSelectedModel}
-        projectName={projectName}
-        setProjectName={setProjectName}
+        projectInfo={projectInfo}
+        setProjectInfo={setProjectInfo}
       />
 
       <main className="flex-1 overflow-y-auto bg-zinc-950">
@@ -55,7 +55,7 @@ export const App: React.FC = () => {
         {activeView === 'chat' && (
           <ChatView
             selectedModel={selectedModel}
-            projectName={projectName}
+            projectInfo={projectInfo}
             projectContext={projectContext}
             setProjectContext={setProjectContext}
           />
@@ -63,13 +63,13 @@ export const App: React.FC = () => {
         {activeView === 'agents' && (
           <AgentsView
             selectedModel={selectedModel}
-            projectName={projectName}
+            projectInfo={projectInfo}
             projectContext={projectContext}
           />
         )}
         {activeView === 'ollama' && <OllamaView models={models} refreshModels={refreshModels} />}
         {activeView === 'playground' && <PlaygroundView models={models} selectedModel={selectedModel} />}
-        {activeView === 'history' && <HistoryView projectName={projectName} />}
+        {activeView === 'history' && <HistoryView projectInfo={projectInfo} />}
       </main>
     </div>
   );

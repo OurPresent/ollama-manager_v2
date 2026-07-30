@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ActiveView, OllamaModel } from '../types';
+import { ActiveView, OllamaModel, ProjectInfo } from '../types';
 import { 
   Home, 
   MessageSquare, 
@@ -24,38 +24,9 @@ interface SidebarProps {
   models: OllamaModel[];
   selectedModel: string;
   setSelectedModel: (model: string) => void;
-  projectName: string;
-  setProjectName: (name: string) => void;
+  projectInfo: ProjectInfo;
+  setProjectInfo: (info: ProjectInfo) => void;
 }
-
-const validateProjectPath = (path: string): string | null => {
-  try {
-    // Check if path exists and is accessible
-    // In a browser environment, we can't directly check file system
-    // So we'll validate the format and return the path if it looks valid
-    const trimmedPath = path.trim();
-    
-    // Basic validation: should not be empty and should have a reasonable length
-    if (!trimmedPath || trimmedPath.length < 2) {
-      return null;
-    }
-    
-    // For Windows paths, check for drive letter pattern (C:\, D:\, etc.)
-    const windowsPathPattern = /^[A-Za-z]:\\/;
-    // For Unix paths, check for absolute path pattern (/home/, /usr/, etc.)
-    const unixPathPattern = /^\//;
-    
-    // Accept if it matches either Windows or Unix absolute path pattern
-    // Or if it's a relative path (doesn't start with special chars)
-    if (windowsPathPattern.test(trimmedPath) || unixPathPattern.test(trimmedPath) || !trimmedPath.startsWith('.')) {
-      return trimmedPath;
-    }
-    
-    return null;
-  } catch {
-    return null;
-  }
-};
 
 export const Sidebar: React.FC<SidebarProps> = ({
   activeView,
@@ -64,8 +35,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   models,
   selectedModel,
   setSelectedModel,
-  projectName,
-  setProjectName,
+  projectInfo,
+  setProjectInfo,
 }) => {
   const [dockerStatus, setDockerStatus] = useState<DockerStatus>({ running: false, details: '' });
   const [isControlling, setIsControlling] = useState(false);
@@ -185,58 +156,71 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <label className="flex items-center gap-1.5 text-[11px] font-mono text-zinc-400 mb-1.5">
             <Folder className="w-3.5 h-3.5 text-emerald-400" /> Proyecto Activo
           </label>
-          <div className="flex gap-1.5">
-            <input
-              type="text"
-              value={projectName}
-              onChange={(e) => setProjectName(e.target.value)}
-              placeholder="Nombre del proyecto"
-              className="flex-1 bg-zinc-900 border border-zinc-800 rounded px-2.5 py-1.5 font-mono text-xs text-zinc-200 focus:outline-none focus:border-emerald-500/50"
-            />
-            <button
-              onClick={() => {
-                // Create a hidden file input element - ONLY to get the folder path, not to upload files
-                const input = document.createElement('input');
-                input.type = 'file';
-                
-                // Append to DOM first (required for some browsers)
-                document.body.appendChild(input);
-                
-                // Set directory selection attributes AFTER appending to DOM
-                // This ensures the browser recognizes folder selection mode
-                input.setAttribute('webkitdirectory', '');
-                input.setAttribute('directory', '');
-                input.webkitdirectory = true;
-                input.style.display = 'none';
-                
-                input.onchange = (e) => {
-                  const files = (e.target as HTMLInputElement).files;
-                  if (files && files.length > 0) {
-                    // Get ONLY the folder name from the first file's path
-                    // We do NOT read or store any file contents
-                    const firstFilePath = files[0].webkitRelativePath;
-                    const folderName = firstFilePath.split('/')[0];
-                    
-                    // Store only the folder name/path for reference
-                    setProjectName(folderName);
-                    
-                    // IMPORTANT: No files are uploaded or stored
-                    // Only the folder path/name is saved
+          <div className="space-y-1.5">
+            <div className="flex gap-1.5">
+              <input
+                type="text"
+                value={projectInfo.name}
+                onChange={(e) => setProjectInfo({ ...projectInfo, name: e.target.value })}
+                placeholder="Nombre del proyecto"
+                className="flex-1 bg-zinc-900 border border-zinc-800 rounded px-2.5 py-1.5 font-mono text-xs text-zinc-200 focus:outline-none focus:border-emerald-500/50"
+              />
+              <button
+                onClick={async () => {
+                  // 1. Navegadores modernos Chromium (Chrome, Edge, Brave, Opera)
+                  if ('showDirectoryPicker' in window) {
+                    try {
+                      const dirHandle = await (window as any).showDirectoryPicker();
+                      setProjectInfo({ 
+                        name: dirHandle.name, 
+                        path: dirHandle.name 
+                      });
+                    } catch (err: any) {
+                      if (err.name !== 'AbortError') {
+                        console.error('Error al seleccionar la carpeta:', err);
+                      }
+                    }
+                  } else {
+                    // 2. Fallback para Firefox y navegadores antiguos
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.setAttribute('webkitdirectory', '');
+                    input.setAttribute('directory', '');
+                    input.style.display = 'none';
+
+                    input.onchange = (e) => {
+                      const files = (e.target as HTMLInputElement).files;
+                      if (files && files.length > 0) {
+                        const firstFilePath = files[0].webkitRelativePath;
+                        const folderName = firstFilePath.split('/')[0];
+                        setProjectInfo({ 
+                          name: folderName, 
+                          path: folderName 
+                        });
+                      }
+                    };
+
+                    document.body.appendChild(input);
+                    input.click();
+                    document.body.removeChild(input);
                   }
-                };
-                
-                // Trigger click and cleanup
-                input.click();
-                document.body.removeChild(input);
-              }}
-              className="p-1.5 bg-zinc-800 border border-zinc-700 rounded hover:bg-zinc-700 transition"
-              title="Seleccionar carpeta del proyecto (solo ruta, sin subir archivos)"
-              type="button"
-            >
-              <FolderOpen className="w-3.5 h-3.5 text-zinc-400" />
-            </button>
+                }}
+                className="p-1.5 bg-zinc-800 border border-zinc-700 rounded hover:bg-zinc-700 transition"
+                title="Seleccionar carpeta del proyecto"
+                type="button"
+              >
+                <FolderOpen className="w-3.5 h-3.5 text-zinc-400" />
+              </button>
+            </div>
+            {projectInfo.path && (
+              <div className="bg-zinc-900/60 border border-zinc-800 rounded px-2 py-1.5">
+                <p className="text-[10px] font-mono text-emerald-400 break-all">
+                  📁 {projectInfo.path}
+                </p>
+              </div>
+            )}
+            <p className="text-[10px] text-zinc-500">Ruta completa del proyecto</p>
           </div>
-          <p className="text-[10px] text-zinc-500 mt-1">Ruta validada del proyecto</p>
         </div>
 
         <div>

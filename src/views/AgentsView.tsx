@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import { OllamaModel } from '../types';
 import { streamChatCompletion } from '../services/ollama';
 import { parseAndSaveMemoryJson } from '../services/memoryDb';
 import { Bot, Play, CheckCircle2, Loader2, Sparkles } from 'lucide-react';
 
 interface Props {
   selectedModel: string;
-  projectName: string;
+  projectInfo: { name: string; path: string };
   projectContext: string;
 }
 
@@ -19,7 +18,7 @@ const AGENT_ROLES = [
   { name: 'DevOps Engineer', sys: 'Eng DevOps. Diseña Dockerfiles, pipelines CI/CD y configuraciones de despliegue.' }
 ];
 
-export const AgentsView: React.FC<Props> = ({ selectedModel, projectName, projectContext }) => {
+export const AgentsView: React.FC<Props> = ({ selectedModel, projectInfo, projectContext }) => {
   const [goal, setGoal] = useState('');
   const [plan, setPlan] = useState('');
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
@@ -32,7 +31,7 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, projectName, projec
     setPlan('');
 
     const sysPrompt = 'Eres un Arquitecto de Software Lead. Diseña un plan técnico paso a paso detallado.';
-    const userPrompt = `CÓDIGO DE ENTORNO:\n${projectContext}\n\nOBJETIVO:\n${goal}`;
+    const userPrompt = `PROYECTO: ${projectInfo.name}\nRUTA: ${projectInfo.path || 'No especificada'}\n\nCÓDIGO DE ENTORNO:\n${projectContext}\n\nOBJETIVO:\n${goal}`;
 
     try {
       let accumulated = '';
@@ -109,7 +108,7 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, projectName, projec
     );
 
     // Guardar en la BD local de TS
-    parseAndSaveMemoryJson(projectName, auditOutput);
+    parseAndSaveMemoryJson(projectInfo.name, auditOutput);
     setIsRunningPipeline(false);
   };
 

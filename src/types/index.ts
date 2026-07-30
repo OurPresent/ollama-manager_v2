@@ -43,3 +43,8 @@ export interface AgentRole {
 }
 
 export type ActiveView = 'home' | 'chat' | 'agents' | 'ollama' | 'playground' | 'history';
+
+export interface ProjectInfo {
+  name: string;
+  path: string;
+}

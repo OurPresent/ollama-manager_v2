@@ -3,13 +3,13 @@ import { getGraphNodes, getTaskLogs } from '../services/memoryDb';
 import { History, Share2, FileText } from 'lucide-react';
 
 interface Props {
-  projectName: string;
+  projectInfo: { name: string; path: string };
 }
 
-export const HistoryView: React.FC<Props> = ({ projectName }) => {
+export const HistoryView: React.FC<Props> = ({ projectInfo }) => {
   const [activeTab, setActiveTab] = useState<'nodes' | 'logs'>('nodes');
-  const nodes = getGraphNodes(projectName);
-  const logs = getTaskLogs(projectName);
+  const nodes = getGraphNodes(projectInfo.name);
+  const logs = getTaskLogs(projectInfo.name);
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6 text-zinc-100">
@@ -17,7 +17,7 @@ export const HistoryView: React.FC<Props> = ({ projectName }) => {
         <h1 className="text-xl font-mono font-bold flex items-center gap-2">
           <History className="w-5 h-5 text-emerald-400" /> Memoria Persistente (Grafo & MD)
         </h1>
-        <p className="text-xs text-zinc-400">Inspección de la base de conocimiento registrada para "{projectName}"</p>
+        <p className="text-xs text-zinc-400">Inspección de la base de conocimiento registrada para "{projectInfo.name}"</p>
       </header>
 
       {/* Tabs */}

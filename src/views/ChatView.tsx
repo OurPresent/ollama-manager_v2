@@ -2,14 +2,14 @@ import React, { useState, useRef, useEffect } from 'react';
 import { ChatMessage } from '../types';
 import { streamChatCompletion } from '../services/ollama';
 import { parseAndSaveMemoryJson, getGraphNodes, getTaskLogs } from '../services/memoryDb';
-import { Send, Bot, User, Code, Database, Loader2, Plus, MessageSquare, AlertTriangle, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
+import { Send, Bot, User, Code, Loader2, Plus, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
 import { approvalSystem, ApprovalRequest } from '../services/approvalSystem';
 import { fileReferenceSystem } from '../services/fileReference';
 import { saveQueryLog } from '../services/apiDb';
 
 interface Props {
   selectedModel: string;
-  projectName: string;
+  projectInfo: { name: string; path: string };
   projectContext: string;
   setProjectContext: (ctx: string) => void;
 }
@@ -21,23 +21,16 @@ interface ChatSession {
   createdAt: string;
 }
 
-export const ChatView: React.FC<Props> = ({ selectedModel, projectName, projectContext, setProjectContext }) => {
+export const ChatView: React.FC<Props> = ({ selectedModel, projectInfo, projectContext, setProjectContext }) => {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
-  const [projectFiles, setProjectFiles] = useState<string[]>([]);
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
   const currentSession = sessions.find(s => s.id === currentSessionId);
   const messages = currentSession?.messages || [];
-
-  // Update project files when projectName changes
-  useEffect(() => {
-    const files = fileReferenceSystem.getProjectFiles(projectName);
-    setProjectFiles(files);
-  }, [projectName]);
 
   // Setup approval system callback
   useEffect(() => {
@@ -103,7 +96,7 @@ export const ChatView: React.FC<Props> = ({ selectedModel, projectName, projectC
     }
 
     // Process file references (using $ syntax)
-    const { enrichedMessage, fileContents } = await fileReferenceSystem.enrichMessageWithFiles(input, projectName);
+    const { enrichedMessage, fileContents } = await fileReferenceSystem.enrichMessageWithFiles(input, projectInfo.name);
     
     const userMsg: ChatMessage = { role: 'user', content: enrichedMessage };
     const newMessages = [...messages, userMsg];
@@ -112,8 +105,8 @@ export const ChatView: React.FC<Props> = ({ selectedModel, projectName, projectC
     setIsStreaming(true);
 
     // Obtener contexto de memoria desde la base de datos local
-    const graphNodes = getGraphNodes(projectName);
-    const taskLogs = getTaskLogs(projectName);
+    const graphNodes = getGraphNodes(projectInfo.name);
+    const taskLogs = getTaskLogs(projectInfo.name);
 
     let memoryContextStr = '=== MEMORIA DE GRAFO ===\n';
     graphNodes.forEach((n) => {
@@ -136,7 +129,7 @@ export const ChatView: React.FC<Props> = ({ selectedModel, projectName, projectC
 
     const systemPrompt: ChatMessage = {
       role: 'system',
-      content: `Eres un asistente experto de arquitectura para el proyecto "${projectName}".\n\n${memoryContextStr}\n\n=== CÓDIGO FUENTE ===\n${projectContext}${fileContextStr}\n\nREGLA: Si la respuesta define una nueva decisión relevante, incluye al final un bloque \`\`\`json_memory { ... } \`\`\` para actualizar el Grafo.\n\nINSTRUCCIÓN: Cuando el usuario use el signo $ para referirse a archivos (ej: $archivo.ts), el sistema automáticamente incluirá el contenido de esos archivos en el contexto.`
+      content: `Eres un asistente experto de arquitectura para el proyecto "${projectInfo.name}".\n\nRuta completa del proyecto: ${projectInfo.path || 'No especificada'}\n\n${memoryContextStr}\n\n=== CÓDIGO FUENTE ===\n${projectContext}${fileContextStr}\n\nREGLA: Si la respuesta define una nueva decisión relevante, incluye al final un bloque \`\`\`json_memory { ... } \`\`\` para actualizar el Grafo.\n\nINSTRUCCIÓN: Cuando el usuario use el signo $ para referirse a archivos (ej: $archivo.ts), el sistema automáticamente incluirá el contenido de esos archivos en el contexto.`
     };
 
     let assistantContent = '';
@@ -156,10 +149,10 @@ export const ChatView: React.FC<Props> = ({ selectedModel, projectName, projectC
       );
 
       // Parsear si el modelo emitió actualizaciones de memoria
-      parseAndSaveMemoryJson(projectName, assistantContent);
+      parseAndSaveMemoryJson(projectInfo.name, assistantContent);
       
       // Guardar la consulta en la base de datos como markdown
-      await saveQueryLog(projectName, input, assistantContent);
+      await saveQueryLog(projectInfo.name, input, assistantContent);
     } catch (err) {
       console.error(err);
     } finally {
