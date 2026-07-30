@@ -45,22 +45,22 @@ export const PlaygroundView: React.FC<Props> = ({ models, selectedModel }) => {
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6 text-zinc-100">
-      <header className="border-b border-zinc-800 pb-3">
-        <h1 className="text-xl font-mono font-bold flex items-center gap-2">
-          <Sliders className="w-5 h-5 text-emerald-400" /> Playground de Prompts
+    <div className="p-6 max-w-7xl mx-auto space-y-6 text-zinc-800 dark:text-zinc-100">
+      <header className="border-b border-zinc-200 dark:border-zinc-800 pb-3">
+        <h1 className="text-xl font-mono font-bold flex items-center gap-2 text-zinc-800 dark:text-zinc-100">
+          <Sliders className="w-5 h-5 text-sky-500 dark:text-emerald-400" /> Playground de Prompts
         </h1>
-        <p className="text-xs text-zinc-400">Prueba respuestas e hiperparámetros en tiempo real</p>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">Prueba respuestas e hiperparámetros en tiempo real</p>
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="space-y-4">
           <div>
-            <label className="block font-mono text-xs text-zinc-400 mb-1">Modelo:</label>
+            <label className="block font-mono text-xs text-zinc-500 dark:text-zinc-400 mb-1">Modelo:</label>
             <select
               value={model}
               onChange={(e) => setModel(e.target.value)}
-              className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 font-mono text-xs text-zinc-200 focus:outline-none"
+              className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-2.5 font-mono text-xs text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-sky-500 dark:focus:border-emerald-500/50"
             >
               {models.map((m) => (
                 <option key={m.name} value={m.name}>
@@ -71,25 +71,25 @@ export const PlaygroundView: React.FC<Props> = ({ models, selectedModel }) => {
           </div>
 
           <div>
-            <label className="block font-mono text-xs text-zinc-400 mb-1">System Prompt:</label>
+            <label className="block font-mono text-xs text-zinc-500 dark:text-zinc-400 mb-1">System Prompt:</label>
             <textarea
               value={systemPrompt}
               onChange={(e) => setSystemPrompt(e.target.value)}
-              className="w-full h-24 bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 font-mono text-xs focus:outline-none"
+              className="w-full h-24 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-2.5 font-mono text-xs text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-sky-500 dark:focus:border-emerald-500/50"
             />
           </div>
 
           <div>
-            <label className="block font-mono text-xs text-zinc-400 mb-1">User Prompt:</label>
+            <label className="block font-mono text-xs text-zinc-500 dark:text-zinc-400 mb-1">User Prompt:</label>
             <textarea
               value={userPrompt}
               onChange={(e) => setUserPrompt(e.target.value)}
-              className="w-full h-28 bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 font-mono text-xs focus:outline-none"
+              className="w-full h-28 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-2.5 font-mono text-xs text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-sky-500 dark:focus:border-emerald-500/50"
             />
           </div>
 
           <div>
-            <div className="flex justify-between font-mono text-xs text-zinc-400 mb-1">
+            <div className="flex justify-between font-mono text-xs text-zinc-500 dark:text-zinc-400 mb-1">
               <span>Temperatura:</span>
               <span>{temperature}</span>
             </div>
@@ -100,14 +100,14 @@ export const PlaygroundView: React.FC<Props> = ({ models, selectedModel }) => {
               step="0.1"
               value={temperature}
               onChange={(e) => setTemperature(parseFloat(e.target.value))}
-              className="w-full accent-emerald-400"
+              className="w-full accent-sky-500 dark:accent-emerald-400"
             />
           </div>
 
           <button
             onClick={handleRun}
             disabled={isLoading}
-            className="w-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 py-2.5 rounded-lg font-mono text-xs transition flex justify-center items-center gap-2"
+            className="w-full bg-sky-50 dark:bg-emerald-500/10 border border-sky-300 dark:border-emerald-500/30 text-sky-600 dark:text-emerald-400 hover:bg-sky-100 dark:hover:bg-emerald-500/20 py-2.5 rounded-lg font-mono text-xs transition flex justify-center items-center gap-2 disabled:opacity-50"
           >
             {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
             Probar Prompt
@@ -115,9 +115,13 @@ export const PlaygroundView: React.FC<Props> = ({ models, selectedModel }) => {
         </div>
 
         {/* Panel Respuesta */}
-        <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-4 font-mono text-xs whitespace-pre-wrap overflow-y-auto max-h-[550px]">
-          <span className="text-zinc-500 block mb-2">// Respuesta del Modelo</span>
-          {response ? response : <span className="text-zinc-600">Haz clic en "Probar Prompt" para ver el resultado...</span>}
+        <div className="bg-white/80 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 font-mono text-xs whitespace-pre-wrap overflow-y-auto max-h-[550px]">
+          <span className="text-zinc-400 dark:text-zinc-500 block mb-2">// Respuesta del Modelo</span>
+          {response ? (
+            <span className="text-zinc-700 dark:text-zinc-200">{response}</span>
+          ) : (
+            <span className="text-zinc-300 dark:text-zinc-600">Haz clic en "Probar Prompt" para ver el resultado...</span>
+          )}
         </div>
       </div>
     </div>

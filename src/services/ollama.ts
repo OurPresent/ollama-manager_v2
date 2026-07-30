@@ -1,13 +1,29 @@
 import { OllamaModel, ChatMessage } from '../types';
 
-const OLLAMA_BASE_URL = import.meta.env.VITE_OLLAMA_URL || 'http://localhost:11434';
+const getOllamaBaseUrl = (): string => {
+  const saved = localStorage.getItem('serviceConfig');
+  if (saved) {
+    try {
+      const config = JSON.parse(saved);
+      if (config.ollamaUrl) return config.ollamaUrl;
+    } catch (error) {
+      console.error('Error loading Ollama config:', error);
+    }
+  }
+  return import.meta.env.VITE_OLLAMA_URL || 'http://localhost:11434';
+};
 
-export const checkOllamaStatus = async (): Promise<boolean> => {
+const OLLAMA_BASE_URL = getOllamaBaseUrl();
+
+export const checkOllamaStatus = async (): Promise<{ running: boolean; details: string }> => {
   try {
     const res = await fetch(`${OLLAMA_BASE_URL}/api/tags`, { method: 'GET' });
-    return res.ok;
-  } catch {
-    return false;
+    if (res.ok) {
+      return { running: true, details: 'Ollama is running' };
+    }
+    return { running: false, details: 'Ollama is not responding' };
+  } catch (error: any) {
+    return { running: false, details: error.message || 'Cannot connect to Ollama' };
   }
 };
 
@@ -19,6 +35,32 @@ export const fetchInstalledModels = async (): Promise<OllamaModel[]> => {
     return data.models || [];
   } catch {
     return [];
+  }
+};
+
+export const startOllama = async (): Promise<{ status: string; message: string; output: string }> => {
+  try {
+    const res = await fetch('http://localhost:8502/api/docker/ollama/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) throw new Error('Failed to start Ollama');
+    return await res.json();
+  } catch (error: any) {
+    throw new Error(`Error starting Ollama: ${error.message}`);
+  }
+};
+
+export const stopOllama = async (): Promise<{ status: string; message: string; output: string }> => {
+  try {
+    const res = await fetch('http://localhost:8502/api/docker/ollama/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) throw new Error('Failed to stop Ollama');
+    return await res.json();
+  } catch (error: any) {
+    throw new Error(`Error stopping Ollama: ${error.message}`);
   }
 };
 

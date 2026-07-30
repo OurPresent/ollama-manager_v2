@@ -1,10 +1,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import { getDb, saveDb, initDb } from './db';
 
-const execAsync = promisify(exec);
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -131,32 +128,263 @@ app.post('/api/logs', async (req: Request, res: Response) => {
 });
 
 // ------------------------------------------------------------------
-// 4. ENDPOINTS DE CONTROL DE DOCKER (OLLAMA)
+// 5. ENDPOINTS DE ACCIONES DEL SISTEMA (PYTHON)
 // ------------------------------------------------------------------
-app.get('/api/docker/ollama/status', async (req: Request, res: Response) => {
+import { spawn } from 'child_process';
+import path from 'path';
+
+app.post('/api/actions/execute', async (req: Request, res: Response) => {
   try {
-    const { stdout } = await execAsync('docker ps --filter "name=ollama" --format "{{.Names}}\t{{.Status}}"');
-    const isRunning = stdout.includes('ollama');
-    res.json({ running: isRunning, details: stdout || 'No running' });
-  } catch (error) {
-    res.json({ running: false, details: 'Docker not available or ollama container not found' });
+    const { action, project_path, path: filePath, content } = req.body;
+
+    if (!action || !project_path) {
+      res.status(400).json({ success: false, error: 'action and project_path are required' });
+      return;
+    }
+
+    const pythonScript = path.join(__dirname, 'actions.py');
+    const inputData = JSON.stringify({ action, project_path, path: filePath, content });
+
+    const pythonProcess = spawn('python', [pythonScript], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 30000,
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    pythonProcess.stdout.on('data', (data: Buffer) => {
+      stdout += data.toString('utf-8');
+    });
+
+    pythonProcess.stderr.on('data', (data: Buffer) => {
+      stderr += data.toString('utf-8');
+    });
+
+    pythonProcess.on('error', (error: Error) => {
+      console.error('Python action error:', error.message);
+      res.status(500).json({ success: false, error: `Python error: ${error.message}`, stderr });
+    });
+
+    pythonProcess.on('close', (code: number | null) => {
+      if (code !== 0) {
+        console.error('Python process exited with code:', code);
+        res.status(500).json({ success: false, error: `Python process exited with code ${code}`, stderr });
+        return;
+      }
+      try {
+        const result = JSON.parse(stdout.trim());
+        res.json(result);
+      } catch (e) {
+        console.error('Failed to parse Python output:', stdout);
+        res.status(500).json({ success: false, error: 'Failed to parse Python output', stdout });
+      }
+    });
+
+    // Send input data via stdin
+    pythonProcess.stdin.write(inputData);
+    pythonProcess.stdin.end();
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
-app.post('/api/docker/ollama/start', async (req: Request, res: Response) => {
+// ------------------------------------------------------------------
+// 4. ENDPOINTS DE CONTROL DE DOCKER (OLLAMA) - VIA PYTHON
+// ------------------------------------------------------------------
+app.get('/api/docker/ollama/status', async (_req: Request, res: Response) => {
   try {
-    const { stdout } = await execAsync('docker start ollama');
-    res.json({ status: 'ok', message: 'Ollama started', output: stdout });
+    const pythonScript = path.join(__dirname, 'actions.py');
+    const inputData = JSON.stringify({ action: 'docker_check_ollama' });
+
+    const pythonProcess = spawn('python', [pythonScript], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 15000,
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    pythonProcess.stdout.on('data', (data: Buffer) => { stdout += data.toString('utf-8'); });
+    pythonProcess.stderr.on('data', (data: Buffer) => { stderr += data.toString('utf-8'); });
+
+    pythonProcess.on('error', (error: Error) => {
+      res.json({ running: false, details: `Error: ${error.message}` });
+    });
+
+    pythonProcess.on('close', (_code: number | null) => {
+      try {
+        const result = JSON.parse(stdout.trim());
+        res.json({
+          running: result.running || false,
+          details: result.details || 'No info',
+          mode: result.mode || 'unknown'
+        });
+      } catch (e) {
+        res.json({ running: false, details: 'Failed to check Ollama status' });
+      }
+    });
+
+    pythonProcess.stdin.write(inputData);
+    pythonProcess.stdin.end();
+  } catch (error: any) {
+    res.json({ running: false, details: error.message });
+  }
+});
+
+app.post('/api/docker/ollama/start', async (_req: Request, res: Response) => {
+  try {
+    const pythonScript = path.join(__dirname, 'actions.py');
+    const inputData = JSON.stringify({ action: 'docker_start_ollama' });
+
+    const pythonProcess = spawn('python', [pythonScript], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 60000,
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    pythonProcess.stdout.on('data', (data: Buffer) => { stdout += data.toString('utf-8'); });
+    pythonProcess.stderr.on('data', (data: Buffer) => { stderr += data.toString('utf-8'); });
+
+    pythonProcess.on('error', (error: Error) => {
+      res.status(500).json({ error: 'Failed to start Ollama', details: error.message });
+    });
+
+    pythonProcess.on('close', (_code: number | null) => {
+      try {
+        const result = JSON.parse(stdout.trim());
+        if (result.success) {
+          res.json({ status: 'ok', message: result.result, output: result.output || '' });
+        } else {
+          res.status(500).json({ error: result.error || 'Failed to start Ollama' });
+        }
+      } catch (e) {
+        res.status(500).json({ error: 'Failed to parse Python output' });
+      }
+    });
+
+    pythonProcess.stdin.write(inputData);
+    pythonProcess.stdin.end();
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to start ollama', details: error.message });
   }
 });
 
-app.post('/api/docker/ollama/stop', async (req: Request, res: Response) => {
+app.post('/api/docker/ollama/stop', async (_req: Request, res: Response) => {
   try {
-    const { stdout } = await execAsync('docker stop ollama');
-    res.json({ status: 'ok', message: 'Ollama stopped', output: stdout });
+    const pythonScript = path.join(__dirname, 'actions.py');
+    const inputData = JSON.stringify({ action: 'docker_stop_ollama' });
+
+    const pythonProcess = spawn('python', [pythonScript], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 30000,
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    pythonProcess.stdout.on('data', (data: Buffer) => { stdout += data.toString('utf-8'); });
+    pythonProcess.stderr.on('data', (data: Buffer) => { stderr += data.toString('utf-8'); });
+
+    pythonProcess.on('error', (error: Error) => {
+      res.status(500).json({ error: 'Failed to stop Ollama', details: error.message });
+    });
+
+    pythonProcess.on('close', (_code: number | null) => {
+      try {
+        const result = JSON.parse(stdout.trim());
+        if (result.success) {
+          res.json({ status: 'ok', message: result.result, output: result.output || '' });
+        } else {
+          res.status(500).json({ error: result.error || 'Failed to stop Ollama' });
+        }
+      } catch (e) {
+        res.status(500).json({ error: 'Failed to parse Python output' });
+      }
+    });
+
+    pythonProcess.stdin.write(inputData);
+    pythonProcess.stdin.end();
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to stop ollama', details: error.message });
   }
 });
+
+app.post('/api/docker/ollama/restart', async (_req: Request, res: Response) => {
+  try {
+    const pythonScript = path.join(__dirname, 'actions.py');
+    const inputData = JSON.stringify({ action: 'docker_restart_ollama' });
+
+    const pythonProcess = spawn('python', [pythonScript], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 30000,
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    pythonProcess.stdout.on('data', (data: Buffer) => { stdout += data.toString('utf-8'); });
+    pythonProcess.stderr.on('data', (data: Buffer) => { stderr += data.toString('utf-8'); });
+
+    pythonProcess.on('error', (error: Error) => {
+      res.status(500).json({ error: 'Failed to restart Ollama', details: error.message });
+    });
+
+    pythonProcess.on('close', (_code: number | null) => {
+      try {
+        const result = JSON.parse(stdout.trim());
+        if (result.success) {
+          res.json({ status: 'ok', message: result.result, output: result.output || '' });
+        } else {
+          res.status(500).json({ error: result.error || 'Failed to restart Ollama' });
+        }
+      } catch (e) {
+        res.status(500).json({ error: 'Failed to parse Python output' });
+      }
+    });
+
+    pythonProcess.stdin.write(inputData);
+    pythonProcess.stdin.end();
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to restart ollama', details: error.message });
+  }
+});
+
+app.get('/api/docker/info', async (_req: Request, res: Response) => {
+  try {
+    const pythonScript = path.join(__dirname, 'actions.py');
+    const inputData = JSON.stringify({ action: 'docker_get_info' });
+
+    const pythonProcess = spawn('python', [pythonScript], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 15000,
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    pythonProcess.stdout.on('data', (data: Buffer) => { stdout += data.toString('utf-8'); });
+    pythonProcess.stderr.on('data', (data: Buffer) => { stderr += data.toString('utf-8'); });
+
+    pythonProcess.on('error', (error: Error) => {
+      res.status(500).json({ error: error.message });
+    });
+
+    pythonProcess.on('close', (_code: number | null) => {
+      try {
+        const result = JSON.parse(stdout.trim());
+        res.json(result);
+      } catch (e) {
+        res.status(500).json({ error: 'Failed to parse Python output' });
+      }
+    });
+
+    pythonProcess.stdin.write(inputData);
+    pythonProcess.stdin.end();
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+

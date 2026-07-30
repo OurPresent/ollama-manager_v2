@@ -42,7 +42,7 @@ export interface AgentRole {
   icon: string;
 }
 
-export type ActiveView = 'home' | 'chat' | 'agents' | 'planes' | 'ollama' | 'playground' | 'history';
+export type ActiveView = 'home' | 'chat' | 'agents' | 'planes' | 'ollama' | 'playground' | 'history' | 'settings';
 
 export interface ProjectInfo {
   name: string;

@@ -5,7 +5,6 @@ export interface FileReference {
 }
 
 class FileReferenceSystem {
-  private fileCache: Map<string, FileReference> = new Map();
   private projectFiles: Map<string, string[]> = new Map(); // project -> file paths
   private fileContents: Map<string, string> = new Map(); // file path -> content cache
 

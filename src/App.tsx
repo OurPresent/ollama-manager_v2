@@ -9,6 +9,19 @@ import { PlanesView } from './views/PlanesView';
 import { OllamaView } from './views/OllamaView';
 import { PlaygroundView } from './views/PlaygroundView';
 import { HistoryView } from './views/HistoryView';
+import { SettingsView } from './views/SettingsView';
+
+type Theme = 'dark' | 'light' | 'system';
+
+const applyTheme = (theme: Theme) => {
+  const root = document.documentElement;
+  if (theme === 'system') {
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    root.classList.toggle('dark', prefersDark);
+  } else {
+    root.classList.toggle('dark', theme === 'dark');
+  }
+};
 
 export const App: React.FC = () => {
   const [activeView, setActiveView] = useState<ActiveView>('home');
@@ -19,9 +32,9 @@ export const App: React.FC = () => {
   const [projectContext, setProjectContext] = useState<string>('// Contexto general del proyecto...');
 
   const refreshModels = async () => {
-    const online = await checkOllamaStatus();
-    setIsOllamaOnline(online);
-    if (online) {
+    const status = await checkOllamaStatus();
+    setIsOllamaOnline(status.running);
+    if (status.running) {
       const list = await fetchInstalledModels();
       setModels(list);
       if (list.length > 0 && !selectedModel) {
@@ -30,6 +43,27 @@ export const App: React.FC = () => {
     }
   };
 
+  // Aplicar tema guardado al iniciar la aplicación
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('theme') as Theme;
+    if (savedTheme) {
+      applyTheme(savedTheme);
+    } else {
+      applyTheme('dark');
+    }
+  }, []);
+
+  // Escuchar cambios en el tema del sistema cuando está en modo 'system'
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('theme') as Theme;
+    if (savedTheme === 'system') {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const handleChange = () => applyTheme('system');
+      mediaQuery.addEventListener('change', handleChange);
+      return () => mediaQuery.removeEventListener('change', handleChange);
+    }
+  }, []);
+
   useEffect(() => {
     refreshModels();
     const interval = setInterval(refreshModels, 10000);
@@ -37,7 +71,7 @@ export const App: React.FC = () => {
   }, []);
 
   return (
-    <div className="flex h-screen bg-zinc-950 font-sans antialiased text-zinc-100 overflow-hidden">
+    <div className="flex h-screen bg-white dark:bg-zinc-950 font-sans antialiased text-zinc-800 dark:text-zinc-100 overflow-hidden">
       <Sidebar
         activeView={activeView}
         setActiveView={setActiveView}
@@ -49,7 +83,7 @@ export const App: React.FC = () => {
         setProjectInfo={setProjectInfo}
       />
 
-      <main className="flex-1 overflow-y-auto bg-zinc-950">
+      <main className="flex-1 overflow-y-auto bg-zinc-50 dark:bg-zinc-950">
         {activeView === 'home' && (
           <HomeView isOllamaOnline={isOllamaOnline} models={models} setActiveView={setActiveView} />
         )}
@@ -78,6 +112,7 @@ export const App: React.FC = () => {
         {activeView === 'ollama' && <OllamaView models={models} refreshModels={refreshModels} />}
         {activeView === 'playground' && <PlaygroundView models={models} selectedModel={selectedModel} />}
         {activeView === 'history' && <HistoryView projectInfo={projectInfo} />}
+        {activeView === 'settings' && <SettingsView />}
       </main>
     </div>
   );
