@@ -1,19 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, Sun, Moon, Monitor, Server, Cpu, Palette, Save, AlertTriangle, Terminal, Globe } from 'lucide-react';
-import { checkOllamaStatus, startOllama, stopOllama } from '../services/ollama';
+import { checkOllamaStatus, setCachedOllamaBaseUrl, startOllama, stopOllama } from '../services/ollama';
 import { checkDockerOllamaStatus, startOllamaDocker, stopOllamaDocker, restartOllamaDocker, getDockerInfo, DockerStatus, DockerInfo } from '../services/dockerControl';
+import { AppSettings, getAppSettings, saveAppSettings, Theme } from '../services/systemApi';
 
-interface ServiceConfig {
-  ollamaUrl: string;
-  ollamaMode: 'docker' | 'local';
+interface SettingsViewProps {
+  onThemeSaved?: (theme: Theme) => void;
+  onOllamaUrlSaved?: (url: string) => void;
 }
 
-type Theme = 'dark' | 'light' | 'system';
-
-export const SettingsView: React.FC = () => {
+export const SettingsView: React.FC<SettingsViewProps> = ({ onThemeSaved, onOllamaUrlSaved }) => {
   const [theme, setTheme] = useState<Theme>('dark');
   const [loading, setLoading] = useState(false);
-  const [serviceConfig, setServiceConfig] = useState<ServiceConfig>({
+  const [serviceConfig, setServiceConfig] = useState<Omit<AppSettings, 'theme'>>({
     ollamaUrl: 'http://localhost:11434',
     ollamaMode: 'local'
   });
@@ -23,29 +22,25 @@ export const SettingsView: React.FC = () => {
   const [dockerStatus, setDockerStatus] = useState<DockerStatus>({ running: false, details: '', mode: 'unknown' });
   const [dockerInfo, setDockerInfo] = useState<DockerInfo | null>(null);
 
-  // Cargar tema y configuración guardada
   useEffect(() => {
-    const savedTheme = localStorage.getItem('theme') as Theme;
-    if (savedTheme) {
-      setTheme(savedTheme);
-      applyTheme(savedTheme);
-    }
-
-    const savedConfig = localStorage.getItem('serviceConfig');
-    if (savedConfig) {
+    const loadSettings = async () => {
       try {
-        const config = JSON.parse(savedConfig);
+        const config = await getAppSettings();
+        setTheme(config.theme || 'dark');
+        applyTheme(config.theme || 'dark');
         setServiceConfig({
           ollamaUrl: config.ollamaUrl || 'http://localhost:11434',
           ollamaMode: config.ollamaMode || 'local'
         });
+        setCachedOllamaBaseUrl(config.ollamaUrl || 'http://localhost:11434');
       } catch (error) {
-        console.error('Error loading service config:', error);
+        console.error('Error loading service config from SQLite:', error);
       }
-    }
+    };
+
+    loadSettings();
   }, []);
 
-  // Verificar estado de servicios al montar
   useEffect(() => {
     checkServicesStatus();
   }, []);
@@ -63,7 +58,6 @@ export const SettingsView: React.FC = () => {
 
   const handleThemeChange = (newTheme: Theme) => {
     setTheme(newTheme);
-    localStorage.setItem('theme', newTheme);
     applyTheme(newTheme);
   };
 
@@ -123,9 +117,20 @@ export const SettingsView: React.FC = () => {
       return;
     }
 
-    localStorage.setItem('serviceConfig', JSON.stringify(serviceConfig));
-    setSaveMessage('✓ Configuración guardada');
-    setTimeout(() => setSaveMessage(''), 3000);
+    try {
+      await saveAppSettings({
+        theme,
+        ollamaUrl: serviceConfig.ollamaUrl,
+        ollamaMode: serviceConfig.ollamaMode,
+      });
+      setCachedOllamaBaseUrl(serviceConfig.ollamaUrl);
+      onThemeSaved?.(theme);
+      onOllamaUrlSaved?.(serviceConfig.ollamaUrl);
+      setSaveMessage('✓ Configuración guardada en SQLite');
+      setTimeout(() => setSaveMessage(''), 3000);
+    } catch (error: any) {
+      setSaveError(error.message || 'No se pudo guardar la configuración');
+    }
   };
 
   const handleStartOllama = async () => {

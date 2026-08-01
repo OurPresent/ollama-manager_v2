@@ -1,15 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Plus, Bot, Trash2, Edit2, Settings } from 'lucide-react';
-
-interface Agent {
-  id: string;
-  name: string;
-  role: string;
-  systemPrompt: string;
-  description: string;
-  status: 'idle' | 'running' | 'completed' | 'error';
-  lastExecution?: string;
-}
+import { PersistedAgent } from '../types';
+import { createAgent, deleteAgent, fetchAgents, updateAgent } from '../services/systemApi';
 
 interface Props {
   selectedModel: string;
@@ -18,68 +10,38 @@ interface Props {
 }
 
 export const AgentsView: React.FC<Props> = ({ selectedModel, projectInfo: _projectInfo, projectContext: _projectContext }) => {
-  const [agents, setAgents] = useState<Agent[]>([
-    {
-      id: '1',
-      name: 'Gestor de Proyecto Lead',
-      role: 'Project Manager',
-      systemPrompt: 'Project Manager Senior. Desglosa tareas y estructura la ejecución.',
-      description: 'Coordina el flujo de trabajo y descompone objetivos en tareas ejecutables',
-      status: 'idle'
-    },
-    {
-      id: '2',
-      name: 'Desarrollador Backend',
-      role: 'Backend Developer',
-      systemPrompt: 'Backend Senior en Python/TypeScript. Escribe arquitectura y código de servicios.',
-      description: 'Especialista en arquitectura de servicios, APIs y lógica de negocio',
-      status: 'idle'
-    },
-    {
-      id: '3',
-      name: 'Desarrollador Frontend',
-      role: 'Frontend Developer',
-      systemPrompt: 'Frontend Lead en React, TS y Tailwind. Diseña interfaces avanzadas.',
-      description: 'Experto en interfaces de usuario, componentes React y experiencia visual',
-      status: 'idle'
-    },
-    {
-      id: '4',
-      name: 'DBA (SQL/NoSQL)',
-      role: 'Database Administrator',
-      systemPrompt: 'DBA Experto. Diseña esquemas, relaciones e índices eficientes.',
-      description: 'Diseña y optimiza bases de datos, esquemas y consultas',
-      status: 'idle'
-    },
-    {
-      id: '5',
-      name: 'QA Tester',
-      role: 'Quality Assurance',
-      systemPrompt: 'Tester QA. Genera estrategias de testing, casos de borde y suite de pruebas.',
-      description: 'Garantiza la calidad mediante pruebas automatizadas y manuales',
-      status: 'idle'
-    },
-    {
-      id: '6',
-      name: 'DevOps Engineer',
-      role: 'DevOps',
-      systemPrompt: 'Eng DevOps. Diseña Dockerfiles, pipelines CI/CD y configuraciones de despliegue.',
-      description: 'Automatiza despliegues, infraestructura y pipelines de integración',
-      status: 'idle'
-    }
-  ]);
+  const [agents, setAgents] = useState<PersistedAgent[]>([]);
 
   const [showAddModal, setShowAddModal] = useState(false);
-  const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
+  const [editingAgent, setEditingAgent] = useState<PersistedAgent | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     role: '',
     systemPrompt: '',
     description: ''
   });
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
   const [executionOutput] = useState<{ [key: string]: string }>({});
   const [showOutputModal, setShowOutputModal] = useState(false);
   const [currentOutput, setCurrentOutput] = useState({ agentName: '', output: '' });
+
+  const loadAgents = async () => {
+    setIsLoading(true);
+    setError('');
+    try {
+      const data = await fetchAgents();
+      setAgents(data);
+    } catch (err: any) {
+      setError(err.message || 'No se pudieron cargar los agentes');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAgents();
+  }, []);
 
   const handleAddAgent = () => {
     setEditingAgent(null);
@@ -87,7 +49,7 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, projectInfo: _proje
     setShowAddModal(true);
   };
 
-  const handleEditAgent = (agent: Agent) => {
+  const handleEditAgent = (agent: PersistedAgent) => {
     setEditingAgent(agent);
     setFormData({
       name: agent.name,
@@ -98,40 +60,40 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, projectInfo: _proje
     setShowAddModal(true);
   };
 
-  const handleSaveAgent = () => {
+  const handleSaveAgent = async () => {
     if (!formData.name || !formData.role || !formData.systemPrompt) return;
 
-    if (editingAgent) {
-      setAgents(agents.map(a =>
-        a.id === editingAgent.id
-          ? { ...a, ...formData }
-          : a
-      ));
-    } else {
-      const newAgent: Agent = {
-        id: Date.now().toString(),
-        ...formData,
-        status: 'idle'
-      };
-      setAgents([...agents, newAgent]);
+    try {
+      if (editingAgent) {
+        await updateAgent(editingAgent.id, formData);
+      } else {
+        await createAgent(formData);
+      }
+      await loadAgents();
+      setShowAddModal(false);
+      setFormData({ name: '', role: '', systemPrompt: '', description: '' });
+      setEditingAgent(null);
+    } catch (err: any) {
+      setError(err.message || 'No se pudo guardar el agente');
     }
-
-    setShowAddModal(false);
-    setFormData({ name: '', role: '', systemPrompt: '', description: '' });
-    setEditingAgent(null);
   };
 
-  const handleDeleteAgent = (id: string) => {
-    setAgents(agents.filter(a => a.id !== id));
+  const handleDeleteAgent = async (id: string) => {
+    try {
+      await deleteAgent(id);
+      await loadAgents();
+    } catch (err: any) {
+      setError(err.message || 'No se pudo eliminar el agente');
+    }
   };
 
-  const handleShowOutput = (agent: Agent) => {
+  const handleShowOutput = (agent: PersistedAgent) => {
     const output = executionOutput[agent.id] || 'Sin output';
     setCurrentOutput({ agentName: agent.name, output });
     setShowOutputModal(true);
   };
 
-  const getStatusColor = (status: Agent['status']) => {
+  const getStatusColor = (status: PersistedAgent['status']) => {
     switch (status) {
       case 'idle': return 'text-zinc-400 dark:text-zinc-400';
       case 'running': return 'text-amber-500 dark:text-amber-400';
@@ -140,7 +102,7 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, projectInfo: _proje
     }
   };
 
-  const getStatusIcon = (status: Agent['status']) => {
+  const getStatusIcon = (status: PersistedAgent['status']) => {
     switch (status) {
       case 'idle': return <Settings className="w-4 h-4" />;
       case 'running': return <Settings className="w-4 h-4" />;
@@ -168,6 +130,12 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, projectInfo: _proje
         </button>
       </header>
 
+      {error && (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-mono text-rose-600 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">
+          {error}
+        </div>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white/80 dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4">
@@ -177,7 +145,7 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, projectInfo: _proje
         <div className="bg-white/80 dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4">
           <p className="text-xs font-mono text-zinc-500 dark:text-zinc-400 mb-1">Activos</p>
           <p className="text-2xl font-mono font-bold text-emerald-600 dark:text-emerald-400">
-            {agents.filter(a => a.status === 'completed').length}
+            {agents.filter(a => a.status !== 'error').length}
           </p>
         </div>
         <div className="bg-white/80 dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4">
@@ -195,6 +163,11 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, projectInfo: _proje
       </div>
 
       {/* Agents Grid */}
+      {isLoading ? (
+        <div className="rounded-xl border border-zinc-200 bg-white/80 p-6 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-400">
+          Cargando agentes desde SQLite...
+        </div>
+      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {agents.map((agent) => (
           <div
@@ -222,6 +195,10 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, projectInfo: _proje
               <p className="text-[10px] font-mono text-zinc-400 dark:text-zinc-500 mb-1">System Prompt:</p>
               <p className="text-xs font-mono text-zinc-700 dark:text-zinc-300 line-clamp-2">{agent.systemPrompt}</p>
             </div>
+
+            {agent.isBuiltin && (
+              <p className="text-[10px] font-mono text-sky-600 dark:text-blue-400">Agente base persistido en SQLite</p>
+            )}
 
             {agent.lastExecution && (
               <p className="text-[10px] font-mono text-zinc-500 dark:text-zinc-500">
@@ -255,6 +232,7 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, projectInfo: _proje
           </div>
         ))}
       </div>
+      )}
 
       {/* Output Modal */}
       {showOutputModal && (

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { OllamaModel } from '../types';
+import { getOllamaBaseUrl } from '../services/ollama';
 import { Sliders, Play, Loader2 } from 'lucide-react';
 
 interface Props {
@@ -21,7 +22,8 @@ export const PlaygroundView: React.FC<Props> = ({ models, selectedModel }) => {
     setResponse('');
 
     try {
-      const res = await fetch('http://localhost:11434/api/chat', {
+      const baseUrl = await getOllamaBaseUrl();
+      const res = await fetch(`${baseUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ActiveView, OllamaModel, ProjectInfo } from './types';
-import { checkOllamaStatus, fetchInstalledModels } from './services/ollama';
+import { checkOllamaStatus, fetchInstalledModels, setCachedOllamaBaseUrl } from './services/ollama';
+import { fetchActiveProject, getAppSettings, Theme } from './services/systemApi';
 import { Sidebar } from './components/Sidebar';
 import { HomeView } from './views/HomeView';
 import { ChatView } from './views/ChatView';
@@ -10,8 +11,6 @@ import { OllamaView } from './views/OllamaView';
 import { PlaygroundView } from './views/PlaygroundView';
 import { HistoryView } from './views/HistoryView';
 import { SettingsView } from './views/SettingsView';
-
-type Theme = 'dark' | 'light' | 'system';
 
 const applyTheme = (theme: Theme) => {
   const root = document.documentElement;
@@ -28,7 +27,8 @@ export const App: React.FC = () => {
   const [isOllamaOnline, setIsOllamaOnline] = useState(false);
   const [models, setModels] = useState<OllamaModel[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('');
-  const [projectInfo, setProjectInfo] = useState<ProjectInfo>({ name: 'Proyecto_Demo', path: '' });
+  const [theme, setTheme] = useState<Theme>('dark');
+  const [projectInfo, setProjectInfo] = useState<ProjectInfo>({ name: '', path: '' });
   const [projectContext, setProjectContext] = useState<string>('// Contexto general del proyecto...');
 
   const refreshModels = async () => {
@@ -43,26 +43,36 @@ export const App: React.FC = () => {
     }
   };
 
-  // Aplicar tema guardado al iniciar la aplicación
   useEffect(() => {
-    const savedTheme = localStorage.getItem('theme') as Theme;
-    if (savedTheme) {
-      applyTheme(savedTheme);
-    } else {
-      applyTheme('dark');
-    }
+    const bootstrap = async () => {
+      try {
+        const [settings, activeProject] = await Promise.all([
+          getAppSettings(),
+          fetchActiveProject(),
+        ]);
+
+        setTheme(settings.theme || 'dark');
+        setCachedOllamaBaseUrl(settings.ollamaUrl);
+        if (activeProject) {
+          setProjectInfo(activeProject);
+        }
+      } catch (error) {
+        applyTheme('dark');
+      }
+    };
+
+    bootstrap();
   }, []);
 
-  // Escuchar cambios en el tema del sistema cuando está en modo 'system'
   useEffect(() => {
-    const savedTheme = localStorage.getItem('theme') as Theme;
-    if (savedTheme === 'system') {
-      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-      const handleChange = () => applyTheme('system');
-      mediaQuery.addEventListener('change', handleChange);
-      return () => mediaQuery.removeEventListener('change', handleChange);
-    }
-  }, []);
+    applyTheme(theme);
+    if (theme !== 'system') return;
+
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = () => applyTheme('system');
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, [theme]);
 
   useEffect(() => {
     refreshModels();
@@ -112,7 +122,12 @@ export const App: React.FC = () => {
         {activeView === 'ollama' && <OllamaView models={models} refreshModels={refreshModels} />}
         {activeView === 'playground' && <PlaygroundView models={models} selectedModel={selectedModel} />}
         {activeView === 'history' && <HistoryView projectInfo={projectInfo} />}
-        {activeView === 'settings' && <SettingsView />}
+        {activeView === 'settings' && (
+          <SettingsView
+            onThemeSaved={setTheme}
+            onOllamaUrlSaved={(url) => setCachedOllamaBaseUrl(url)}
+          />
+        )}
       </main>
     </div>
   );

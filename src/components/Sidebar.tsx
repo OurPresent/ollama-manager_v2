@@ -12,11 +12,11 @@ import {
   Circle,
   Play,
   Square,
-  FolderOpen,
   Loader2,
   Settings
 } from 'lucide-react';
 import { checkDockerOllamaStatus, startOllamaDocker, stopOllamaDocker, DockerStatus } from '../services/dockerControl';
+import { activateProject, fetchActiveProject, fetchProjects, registerProject } from '../services/systemApi';
 
 interface SidebarProps {
   activeView: ActiveView;
@@ -41,6 +41,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const [dockerStatus, setDockerStatus] = useState<DockerStatus>({ running: false, details: '' });
   const [isControlling, setIsControlling] = useState(false);
+  const [savedProjects, setSavedProjects] = useState<ProjectInfo[]>([]);
+  const [projectPathInput, setProjectPathInput] = useState(projectInfo.path);
+  const [isSavingProject, setIsSavingProject] = useState(false);
+  const [projectError, setProjectError] = useState('');
+  const [projectMessage, setProjectMessage] = useState('');
 
   const menuItems: { id: ActiveView; label: string; icon: React.ReactNode }[] = [
     { id: 'home', label: 'Inicio', icon: <Home className="w-4 h-4" /> },
@@ -63,6 +68,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    setProjectPathInput(projectInfo.path);
+  }, [projectInfo.path]);
+
+  useEffect(() => {
+    const loadProjects = async () => {
+      try {
+        const [projects, activeProject] = await Promise.all([
+          fetchProjects(),
+          fetchActiveProject(),
+        ]);
+        setSavedProjects(projects);
+        if (activeProject) {
+          setProjectInfo(activeProject);
+        }
+      } catch (error) {
+        console.error('Error loading saved projects:', error);
+      }
+    };
+
+    loadProjects();
+  }, [setProjectInfo]);
+
   const handleToggleDocker = async () => {
     setIsControlling(true);
     try {
@@ -78,6 +106,64 @@ export const Sidebar: React.FC<SidebarProps> = ({
       console.error('Error controlling Docker:', error);
     } finally {
       setIsControlling(false);
+    }
+  };
+
+  const loadProjects = async () => {
+    const [projects, activeProject] = await Promise.all([
+      fetchProjects(),
+      fetchActiveProject(),
+    ]);
+    setSavedProjects(projects);
+    if (activeProject) {
+      setProjectInfo(activeProject);
+    }
+  };
+
+  const handleSaveProject = async () => {
+    if (!projectInfo.name.trim() || !projectPathInput.trim()) {
+      setProjectError('Debes indicar nombre y ruta real del proyecto.');
+      return;
+    }
+
+    setIsSavingProject(true);
+    setProjectError('');
+    setProjectMessage('');
+
+    try {
+      const project = await registerProject({
+        name: projectInfo.name.trim(),
+        path: projectPathInput.trim(),
+        description: projectInfo.description || '',
+      });
+      if (project.id) {
+        await activateProject(project.id);
+      }
+      await loadProjects();
+      setProjectInfo(project);
+      setProjectPathInput(project.path);
+      setProjectMessage('Proyecto guardado y activado en SQLite.');
+      setTimeout(() => setProjectMessage(''), 3000);
+    } catch (error: any) {
+      setProjectError(error.message || 'No se pudo registrar el proyecto.');
+    } finally {
+      setIsSavingProject(false);
+    }
+  };
+
+  const handleActivateProject = async (projectId: string) => {
+    if (!projectId) return;
+
+    try {
+      await activateProject(projectId);
+      const project = savedProjects.find((item) => item.id === projectId);
+      if (project) {
+        setProjectInfo(project);
+        setProjectPathInput(project.path);
+      }
+      await loadProjects();
+    } catch (error: any) {
+      setProjectError(error.message || 'No se pudo activar el proyecto.');
     }
   };
 
@@ -170,7 +256,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <label className="flex items-center gap-1.5 text-[11px] font-mono text-zinc-500 dark:text-zinc-400 mb-1.5">
             <Folder className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400" /> Proyecto Activo
           </label>
-          <div className="space-y-1.5">
+          <div className="space-y-2">
+            <select
+              value={projectInfo.id || ''}
+              onChange={(e) => handleActivateProject(e.target.value)}
+              className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded px-2.5 py-1.5 font-mono text-xs text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500 dark:focus:border-emerald-500/50"
+            >
+              <option value="">Selecciona un proyecto guardado</option>
+              {savedProjects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+
             <div className="flex gap-1.5">
               <input
                 type="text"
@@ -180,52 +279,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 className="flex-1 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded px-2.5 py-1.5 font-mono text-xs text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500 dark:focus:border-emerald-500/50"
               />
               <button
-                onClick={async () => {
-                  // 1. Navegadores modernos Chromium (Chrome, Edge, Brave, Opera)
-                  if ('showDirectoryPicker' in window) {
-                    try {
-                      const dirHandle = await (window as any).showDirectoryPicker();
-                      setProjectInfo({ 
-                        name: dirHandle.name, 
-                        path: dirHandle.name 
-                      });
-                    } catch (err: any) {
-                      if (err.name !== 'AbortError') {
-                        console.error('Error al seleccionar la carpeta:', err);
-                      }
-                    }
-                  } else {
-                    // 2. Fallback para Firefox y navegadores antiguos
-                    const input = document.createElement('input');
-                    input.type = 'file';
-                    input.setAttribute('webkitdirectory', '');
-                    input.setAttribute('directory', '');
-                    input.style.display = 'none';
-
-                    input.onchange = (e) => {
-                      const files = (e.target as HTMLInputElement).files;
-                      if (files && files.length > 0) {
-                        const firstFilePath = files[0].webkitRelativePath;
-                        const folderName = firstFilePath.split('/')[0];
-                        setProjectInfo({ 
-                          name: folderName, 
-                          path: folderName 
-                        });
-                      }
-                    };
-
-                    document.body.appendChild(input);
-                    input.click();
-                    document.body.removeChild(input);
-                  }
-                }}
-                className="p-1.5 bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 transition"
-                title="Seleccionar carpeta del proyecto"
+                onClick={handleSaveProject}
+                disabled={isSavingProject}
+                className="px-2 py-1.5 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-300 dark:border-emerald-500/30 rounded text-[10px] font-mono text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 transition disabled:opacity-50"
                 type="button"
               >
-                <FolderOpen className="w-3.5 h-3.5 text-zinc-500 dark:text-zinc-400" />
+                {isSavingProject ? '...' : 'Guardar'}
               </button>
             </div>
+
+            <input
+              type="text"
+              value={projectPathInput}
+              onChange={(e) => setProjectPathInput(e.target.value)}
+              placeholder="Ruta real del proyecto, ej: C:\\proyectos\\mi-app"
+              className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded px-2.5 py-1.5 font-mono text-xs text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500 dark:focus:border-emerald-500/50"
+            />
             {projectInfo.path && (
               <div className="bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded px-2 py-1.5">
                 <p className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 break-all">
@@ -233,7 +302,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </p>
               </div>
             )}
-            <p className="text-[10px] text-zinc-500">Ruta completa del proyecto</p>
+            {projectMessage && <p className="text-[10px] text-emerald-600 dark:text-emerald-400">{projectMessage}</p>}
+            {projectError && <p className="text-[10px] text-rose-500">{projectError}</p>}
+            <p className="text-[10px] text-zinc-500">SQLite guarda el nombre y la ruta real del proyecto activo.</p>
           </div>
         </div>
 

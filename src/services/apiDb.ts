@@ -1,4 +1,4 @@
-const BACKEND_URL = 'http://localhost:8502/api';
+const BACKEND_URL = '/api';
 
 export const fetchGraphNodes = async (projectName: string) => {
   const res = await fetch(`${BACKEND_URL}/graph/${projectName}`);

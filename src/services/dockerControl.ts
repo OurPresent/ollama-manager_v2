@@ -1,4 +1,4 @@
-const API_BASE = 'http://localhost:8502/api';
+const API_BASE = '/api';
 
 export interface DockerStatus {
   running: boolean;

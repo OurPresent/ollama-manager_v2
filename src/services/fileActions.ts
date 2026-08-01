@@ -58,7 +58,7 @@ export async function executeAction(
   projectPath: string
 ): Promise<ActionResult> {
   try {
-    const res = await fetch('http://localhost:8502/api/actions/execute', {
+    const res = await fetch('/api/actions/execute', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

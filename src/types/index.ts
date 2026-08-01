@@ -45,6 +45,19 @@ export interface AgentRole {
 export type ActiveView = 'home' | 'chat' | 'agents' | 'planes' | 'ollama' | 'playground' | 'history' | 'settings';
 
 export interface ProjectInfo {
+  id?: string;
   name: string;
   path: string;
+  description?: string;
+}
+
+export interface PersistedAgent {
+  id: string;
+  name: string;
+  role: string;
+  systemPrompt: string;
+  description: string;
+  isBuiltin?: boolean;
+  status: 'idle' | 'running' | 'completed' | 'error';
+  lastExecution?: string;
 }

@@ -1,23 +1,31 @@
 import { OllamaModel, ChatMessage } from '../types';
+import { getAppSettings } from './systemApi';
 
-const getOllamaBaseUrl = (): string => {
-  const saved = localStorage.getItem('serviceConfig');
-  if (saved) {
-    try {
-      const config = JSON.parse(saved);
-      if (config.ollamaUrl) return config.ollamaUrl;
-    } catch (error) {
-      console.error('Error loading Ollama config:', error);
-    }
-  }
-  return import.meta.env.VITE_OLLAMA_URL || 'http://localhost:11434';
+let cachedOllamaBaseUrl: string | null = null;
+
+export const setCachedOllamaBaseUrl = (url: string) => {
+  cachedOllamaBaseUrl = url;
 };
 
-const OLLAMA_BASE_URL = getOllamaBaseUrl();
+export const getOllamaBaseUrl = async (): Promise<string> => {
+  if (cachedOllamaBaseUrl) {
+    return cachedOllamaBaseUrl;
+  }
+
+  try {
+    const settings = await getAppSettings();
+    cachedOllamaBaseUrl = settings.ollamaUrl || import.meta.env.VITE_OLLAMA_URL || 'http://localhost:11434';
+  } catch {
+    cachedOllamaBaseUrl = import.meta.env.VITE_OLLAMA_URL || 'http://localhost:11434';
+  }
+
+  return cachedOllamaBaseUrl;
+};
 
 export const checkOllamaStatus = async (): Promise<{ running: boolean; details: string }> => {
   try {
-    const res = await fetch(`${OLLAMA_BASE_URL}/api/tags`, { method: 'GET' });
+    const baseUrl = await getOllamaBaseUrl();
+    const res = await fetch(`${baseUrl}/api/tags`, { method: 'GET' });
     if (res.ok) {
       return { running: true, details: 'Ollama is running' };
     }
@@ -29,7 +37,8 @@ export const checkOllamaStatus = async (): Promise<{ running: boolean; details: 
 
 export const fetchInstalledModels = async (): Promise<OllamaModel[]> => {
   try {
-    const res = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
+    const baseUrl = await getOllamaBaseUrl();
+    const res = await fetch(`${baseUrl}/api/tags`);
     if (!res.ok) return [];
     const data = await res.json();
     return data.models || [];
@@ -40,7 +49,7 @@ export const fetchInstalledModels = async (): Promise<OllamaModel[]> => {
 
 export const startOllama = async (): Promise<{ status: string; message: string; output: string }> => {
   try {
-    const res = await fetch('http://localhost:8502/api/docker/ollama/start', {
+    const res = await fetch('/api/docker/ollama/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' }
     });
@@ -53,7 +62,7 @@ export const startOllama = async (): Promise<{ status: string; message: string; 
 
 export const stopOllama = async (): Promise<{ status: string; message: string; output: string }> => {
   try {
-    const res = await fetch('http://localhost:8502/api/docker/ollama/stop', {
+    const res = await fetch('/api/docker/ollama/stop', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' }
     });
@@ -66,7 +75,8 @@ export const stopOllama = async (): Promise<{ status: string; message: string; o
 
 export const deleteModel = async (modelName: string): Promise<boolean> => {
   try {
-    const res = await fetch(`${OLLAMA_BASE_URL}/api/delete`, {
+    const baseUrl = await getOllamaBaseUrl();
+    const res = await fetch(`${baseUrl}/api/delete`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: modelName }),
@@ -82,7 +92,8 @@ export const pullModelStream = async (
   onProgress: (status: string, progressPct: number) => void
 ): Promise<boolean> => {
   try {
-    const res = await fetch(`${OLLAMA_BASE_URL}/api/pull`, {
+    const baseUrl = await getOllamaBaseUrl();
+    const res = await fetch(`${baseUrl}/api/pull`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: modelName, stream: true }),
@@ -122,7 +133,8 @@ export const streamChatCompletion = async (
   messages: ChatMessage[],
   onChunk: (chunk: string) => void
 ): Promise<string> => {
-  const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+  const baseUrl = await getOllamaBaseUrl();
+  const res = await fetch(`${baseUrl}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
