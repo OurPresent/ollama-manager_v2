@@ -42,7 +42,7 @@ export interface AgentRole {
   icon: string;
 }
 
-export type ActiveView = 'home' | 'chat' | 'agents' | 'planes' | 'ollama' | 'opencode' | 'playground' | 'history' | 'settings';
+export type ActiveView = 'home' | 'chat' | 'agents' | 'planes' | 'ollama' | 'opencode' | 'playground' | 'history' | 'settings' | 'integraciones';
 
 export interface ProjectInfo {
   id?: string;
@@ -62,6 +62,40 @@ export interface PersistedAgent {
   isActive?: boolean;
   status: 'idle' | 'running' | 'completed' | 'error';
   lastExecution?: string;
+}
+
+export interface PersistedSkill {
+  id: string;
+  name: string;
+  description: string;
+  content: string;
+  references_json: string;
+  scope: 'project' | 'global';
+  is_active: number;
+  created_at: string;
+  updated_at: string;
+  installedProject?: boolean;
+  installedGlobal?: boolean;
+}
+
+export interface InstalledSkill {
+  name: string;
+  scope: 'project' | 'global';
+  path: string;
+  description: string;
+  exists: boolean;
+}
+
+export interface BulkImportResult {
+  status: string;
+  imported: number;
+  updated: number;
+  skipped: number;
+  errors: Array<{ index: number; name: string; error: string }>;
+  total: number;
+  installed?: number;
+  failedInstall?: number;
+  installedErrors?: string[];
 }
 
 export interface OpenCodeStatus {

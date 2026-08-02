@@ -12,7 +12,9 @@ import { OllamaView } from './views/OllamaView';
 import { PlaygroundView } from './views/PlaygroundView';
 import { HistoryView } from './views/HistoryView';
 import { OpenCodeView } from './views/OpenCodeView';
+import { IntegracionesView } from './views/IntegracionesView';
 import { SettingsView } from './views/SettingsView';
+import { ToastProvider } from './components/Toast';
 
 const applyTheme = (theme: Theme) => {
   const root = document.documentElement;
@@ -47,7 +49,9 @@ export const App: React.FC = () => {
       if (list.length > 0 && !selectedModel) {
         setSelectedModel(list[0].name);
       }
+      return;
     }
+    setModels([]);
   };
 
   useEffect(() => {
@@ -104,60 +108,63 @@ export const App: React.FC = () => {
   }, []);
 
   return (
-    <div className="flex h-screen bg-white dark:bg-zinc-950 font-sans antialiased text-zinc-800 dark:text-zinc-100 overflow-hidden">
-      <Sidebar
-        activeView={activeView}
-        setActiveView={setActiveView}
-        isOllamaOnline={isOllamaOnline}
-        models={models}
-        selectedModel={selectedModel}
-        setSelectedModel={setSelectedModel}
-        projectInfo={projectInfo}
-        setProjectInfo={setProjectInfo}
-      />
+    <ToastProvider>
+      <div className="flex h-screen bg-white dark:bg-zinc-950 font-sans antialiased text-zinc-800 dark:text-zinc-100 overflow-hidden">
+        <Sidebar
+          activeView={activeView}
+          setActiveView={setActiveView}
+          isOllamaOnline={isOllamaOnline}
+          models={models}
+          selectedModel={selectedModel}
+          setSelectedModel={setSelectedModel}
+          projectInfo={projectInfo}
+          setProjectInfo={setProjectInfo}
+        />
 
-      <main className="flex-1 overflow-y-auto bg-zinc-50 dark:bg-zinc-950">
-        {activeView === 'home' && (
-          <HomeView isOllamaOnline={isOllamaOnline} models={models} agents={agents} setActiveView={setActiveView} />
-        )}
-        {activeView === 'chat' && (
-          <ChatView
-            selectedModel={selectedModel}
-            projectInfo={projectInfo}
-            projectContext={projectContext}
-            setProjectContext={setProjectContext}
-          />
-        )}
-        {activeView === 'agents' && (
-          <AgentsView
-            selectedModel={selectedModel}
-            models={models}
-            agents={agents}
-            onAgentsChange={setAgents}
-            projectInfo={projectInfo}
-            projectContext={projectContext}
-          />
-        )}
-        {activeView === 'planes' && (
-          <PlanesView
-            selectedModel={selectedModel}
-            projectInfo={projectInfo}
-            projectContext={projectContext}
-            agents={agents}
-          />
-        )}
-        {activeView === 'ollama' && <OllamaView models={models} refreshModels={refreshModels} />}
-        {activeView === 'opencode' && <OpenCodeView projectInfo={projectInfo} />}
-        {activeView === 'playground' && <PlaygroundView models={models} selectedModel={selectedModel} />}
-        {activeView === 'history' && <HistoryView projectInfo={projectInfo} />}
-        {activeView === 'settings' && (
-          <SettingsView
-            onThemeSaved={setTheme}
-            onOllamaUrlSaved={(url) => setCachedOllamaBaseUrl(url)}
-          />
-        )}
-      </main>
-    </div>
+        <main className="flex-1 overflow-y-auto bg-zinc-50 dark:bg-zinc-950">
+          {activeView === 'home' && (
+            <HomeView isOllamaOnline={isOllamaOnline} models={models} agents={agents} setActiveView={setActiveView} />
+          )}
+          {activeView === 'chat' && (
+            <ChatView
+              selectedModel={selectedModel}
+              projectInfo={projectInfo}
+              projectContext={projectContext}
+              setProjectContext={setProjectContext}
+            />
+          )}
+          {activeView === 'agents' && (
+            <AgentsView
+              selectedModel={selectedModel}
+              models={models}
+              agents={agents}
+              onAgentsChange={setAgents}
+              projectInfo={projectInfo}
+              projectContext={projectContext}
+            />
+          )}
+          {activeView === 'planes' && (
+            <PlanesView
+              selectedModel={selectedModel}
+              projectInfo={projectInfo}
+              projectContext={projectContext}
+              agents={agents}
+            />
+          )}
+          {activeView === 'ollama' && <OllamaView models={models} refreshModels={refreshModels} />}
+          {activeView === 'opencode' && <OpenCodeView projectInfo={projectInfo} />}
+          {activeView === 'playground' && <PlaygroundView models={models} selectedModel={selectedModel} />}
+          {activeView === 'history' && <HistoryView projectInfo={projectInfo} />}
+          {activeView === 'integraciones' && <IntegracionesView />}
+          {activeView === 'settings' && (
+            <SettingsView
+              onThemeSaved={setTheme}
+              onOllamaUrlSaved={(url) => setCachedOllamaBaseUrl(url)}
+            />
+          )}
+        </main>
+      </div>
+    </ToastProvider>
   );
 };
 

@@ -25,12 +25,16 @@ import type { OllamaModel, OpenCodeConfigFile, OpenCodeQuery, OpenCodeSettings, 
 import {
   applyOllamaToOpenCode,
   getOpenCodeSettings,
+  getOpenCodePermissions,
   listOpenCodeQueries,
   readOpenCodeConfigFile,
+  saveOpenCodePermissions,
   saveOpenCodeSettings,
   writeOpenCodeConfigFile,
+  type OpenCodePermissions,
 } from '../services/opencode';
 import { fetchInstalledModels, getOllamaBaseUrl } from '../services/ollama';
+import { useToast } from '../components/Toast';
 
 interface Props {
   projectInfo: ProjectInfo;
@@ -81,6 +85,17 @@ export const OpenCodeView: React.FC<Props> = ({ projectInfo }) => {
   const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([]);
   const [selectedOllamaModels, setSelectedOllamaModels] = useState<string[]>([]);
   const [ocDefaultModel, setOcDefaultModel] = useState('');
+  const [perms, setPerms] = useState<OpenCodePermissions>({
+    autoApprove: false,
+    read: 'ask',
+    edit: 'ask',
+    bash: 'ask',
+    webfetch: 'ask',
+    websearch: 'ask',
+  });
+  const [permsMsg, setPermsMsg] = useState('');
+  const [permsBusy, setPermsBusy] = useState(false);
+  const { showToast } = useToast();
 
   const messages = chatMessages[currentSessionId ?? ''] ?? [];
 
@@ -112,7 +127,10 @@ export const OpenCodeView: React.FC<Props> = ({ projectInfo }) => {
 
   useEffect(() => {
     if (tab === 'history') loadQueries();
-    if (tab === 'config') loadConfigFile();
+    if (tab === 'config') {
+      loadConfigFile();
+      loadPermissions();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, scope]);
 
@@ -188,6 +206,34 @@ export const OpenCodeView: React.FC<Props> = ({ projectInfo }) => {
       setTimeout(() => setConfigMsg(''), 3000);
     } catch (e) {
       setConfigError(e instanceof Error ? e.message : 'Error al aplicar provider');
+    }
+  };
+
+  const loadPermissions = async () => {
+    setPermsMsg('');
+    try {
+      setPerms(await getOpenCodePermissions(scope));
+    } catch (e) {
+      setPermsMsg(e instanceof Error ? e.message : 'No se pudieron cargar los permisos');
+    }
+  };
+
+  const savePermissions = async () => {
+    setPermsBusy(true);
+    setPermsMsg('');
+    try {
+      const cf = await saveOpenCodePermissions(scope, perms);
+      setConfigFile(cf);
+      setConfigContent(cf.content);
+      setPermsMsg('Permisos guardados en el archivo de configuración.');
+      showToast('success', 'Permisos guardados', `Auto-aprobación ${perms.autoApprove ? 'activada' : 'desactivada'} (${scope === 'project' ? 'proyecto' : 'global'})`);
+      setTimeout(() => setPermsMsg(''), 3000);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Error al guardar permisos';
+      setPermsMsg(msg);
+      showToast('error', 'Error al guardar permisos', msg);
+    } finally {
+      setPermsBusy(false);
     }
   };
 
@@ -798,6 +844,84 @@ export const OpenCodeView: React.FC<Props> = ({ projectInfo }) => {
               </button>
               {configMsg && <span className="text-[10px] text-emerald-600 dark:text-emerald-400">{configMsg}</span>}
               {configError && <span className="text-[10px] text-rose-500">{configError}</span>}
+            </div>
+          </div>
+
+          {/* Auto-aprobaciones */}
+          <div className="bg-white/80 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 font-mono text-xs space-y-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <h3 className="font-bold text-zinc-700 dark:text-zinc-200 flex items-center gap-2">
+                <Wrench className="w-4 h-4 text-amber-500 dark:text-emerald-400" /> Auto-aprobaciones
+              </h3>
+              <span className="text-[10px] text-zinc-400">
+                Controla qué acciones ejecuta OpenCode sin pedir confirmación
+              </span>
+              <div className="flex-1" />
+              <span className="text-[10px] text-zinc-400">
+                Scope: <strong>{scope === 'project' ? 'Proyecto' : 'Global'}</strong>
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between bg-amber-50 dark:bg-emerald-500/10 border border-amber-300 dark:border-emerald-500/30 rounded-lg px-4 py-3">
+              <div>
+                <p className="font-bold text-amber-800 dark:text-emerald-200">Modo auto-aprobación (master)</p>
+                <p className="text-[10px] text-amber-700/80 dark:text-emerald-300/70 mt-0.5">
+                  Con el toggle activo, OpenCode ejecuta lecturas, ediciones, comandos y búsquedas web sin pedir permiso.
+                </p>
+              </div>
+              <button
+                onClick={() => setPerms((p) => ({ ...p, autoApprove: !p.autoApprove }))}
+                title={perms.autoApprove ? 'Desactivar auto-aprobación' : 'Activar auto-aprobación'}
+                className={`relative w-12 h-6 rounded-full transition ${perms.autoApprove ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-700'}`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${perms.autoApprove ? 'translate-x-6' : ''}`}
+                />
+              </button>
+            </div>
+
+            {!perms.autoApprove && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {(
+                  [
+                    ['read', 'Lectura de archivos'],
+                    ['edit', 'Edición de archivos'],
+                    ['bash', 'Comandos en terminal'],
+                    ['webfetch', 'Navegador / webfetch'],
+                    ['websearch', 'Búsquedas web'],
+                  ] as Array<[keyof Omit<OpenCodePermissions, 'autoApprove'>, string]>
+                ).map(([key, label]) => (
+                  <div key={key} className="flex items-center justify-between bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2.5">
+                    <span className="text-zinc-600 dark:text-zinc-300">{label}</span>
+                    <select
+                      value={perms[key]}
+                      onChange={(e) => setPerms((p) => ({ ...p, [key]: e.target.value as OpenCodePermissions[keyof Omit<OpenCodePermissions, 'autoApprove'>] }))}
+                      className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded px-2 py-1 font-mono text-[11px] text-zinc-700 dark:text-zinc-200 focus:outline-none focus:border-emerald-500 dark:focus:border-emerald-500/50"
+                    >
+                      <option value="allow">allow</option>
+                      <option value="ask">ask</option>
+                      <option value="deny">deny</option>
+                    </select>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={savePermissions}
+                disabled={permsBusy}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-300 dark:border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 transition disabled:opacity-50"
+              >
+                <Save className="w-3.5 h-3.5" /> {permsBusy ? 'Guardando...' : 'Guardar permisos'}
+              </button>
+              {permsMsg && <span className="text-[10px] text-emerald-600 dark:text-emerald-400">{permsMsg}</span>}
+              <span className="text-[10px] text-zinc-400">
+                Docs:{' '}
+                <a href="https://opencode.ai/docs/permissions/" target="_blank" rel="noreferrer" className="text-sky-600 dark:text-blue-400 underline">
+                  opencode.ai/docs/permissions
+                </a>
+              </span>
             </div>
           </div>
 

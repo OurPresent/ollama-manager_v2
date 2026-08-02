@@ -20,6 +20,8 @@ import {
   readConfigFile,
   writeConfigFile,
   applyOllamaProvider,
+  applyPermissions,
+  getPermissionsSummary,
 } from '../services/opencodeConfigService';
 import { createId } from '../core/utils';
 import { writeAuditEvent, writeSystemLog } from '../core/audit';
@@ -411,6 +413,46 @@ router.post('/config-file/ollama', async (req, res) => {
     await writeAuditEvent('opencode.config.ollama', 'opencode_config', parsed.scope, null, {
       path: result.path,
       models: parsed.models.length,
+    });
+    res.json(result);
+  } catch (error) {
+    handleRouteError(error, res);
+  }
+});
+
+router.get('/config/permissions', async (req, res) => {
+  try {
+    const scope = scopeSchema.parse(req.query.scope ?? 'project');
+    res.json(await getPermissionsSummary(scope));
+  } catch (error) {
+    handleRouteError(error, res);
+  }
+});
+
+router.post('/config/permissions', async (req, res) => {
+  try {
+    const parsed = z
+      .object({
+        scope: scopeSchema,
+        autoApprove: z.boolean(),
+        read: z.enum(['allow', 'ask', 'deny']),
+        edit: z.enum(['allow', 'ask', 'deny']),
+        bash: z.enum(['allow', 'ask', 'deny']),
+        webfetch: z.enum(['allow', 'ask', 'deny']),
+        websearch: z.enum(['allow', 'ask', 'deny']),
+      })
+      .parse(req.body ?? {});
+    const result = await applyPermissions(parsed.scope, {
+      autoApprove: parsed.autoApprove,
+      read: parsed.read,
+      edit: parsed.edit,
+      bash: parsed.bash,
+      webfetch: parsed.webfetch,
+      websearch: parsed.websearch,
+    });
+    await writeAuditEvent('opencode.config.permissions', 'opencode_config', parsed.scope, null, {
+      path: result.path,
+      autoApprove: parsed.autoApprove,
     });
     res.json(result);
   } catch (error) {

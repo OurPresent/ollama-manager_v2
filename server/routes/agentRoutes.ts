@@ -9,8 +9,9 @@ import {
   deactivateAgent,
   setAgentActive,
   listAgentVersions,
-} from '../repositories/agentRepository';
-import type { AgentRow } from '../core/types';
+  importAgents,
+  normalizeAgentItem,
+} from '../repositories/agentRepository';import type { AgentRow } from '../core/types';
 import { writeAuditEvent } from '../core/audit';
 import { handleRouteError } from './errorHandler';
 
@@ -72,6 +73,78 @@ router.patch('/:id/active', async (req, res) => {
     res.json({ status: 'ok', id, active: parsed.active });
   } catch (error) {
     console.error('Error toggling agent:', error);
+    handleRouteError(error, res);
+  }
+});
+
+router.post('/import', async (req, res) => {
+  try {
+    const parsed = z.object({ items: z.array(z.unknown()).min(1) }).parse(req.body ?? {});
+    const result = await importAgents(parsed.items);
+    await writeAuditEvent('agent.import', 'agent', 'bulk', null, {
+      imported: result.imported,
+      updated: result.updated,
+      skipped: result.skipped,
+      errors: result.errors.length,
+      total: result.total,
+    });
+    res.json({ status: 'ok', ...result });
+  } catch (error) {
+    console.error('Error importing agents:', error);
+    handleRouteError(error, res);
+  }
+});
+
+router.get('/import/template', (_req, res) => {
+  res.json({
+    format: 'array',
+    items: JSON.stringify(
+      [
+        {
+          name: 'Arquitecto de Soluciones',
+          role: 'Solution Architect',
+          description: 'Diseña la arquitectura técnica del sistema',
+          systemPrompt: 'Arquitecto Senior. Diseña arquitecturas escalables y seguras.',
+        },
+      ],
+      null,
+      2
+    ),
+    headers: ['name*', 'role*', 'systemPrompt*', 'description', 'model'],
+  });
+});
+
+router.post('/import/validate', async (req, res) => {
+  try {
+    const parsed = z.object({ items: z.array(z.unknown()).min(1) }).parse(req.body ?? {});
+    const errors: Array<{ index: number; name: string; error: string }> = [];
+    const valid: Array<{ name: string; role: string }> = [];
+    for (let i = 0; i < parsed.items.length; i++) {
+      const { agent, error } = normalizeAgentItem(parsed.items[i], i);
+      if (error || !agent) errors.push({ index: i, name: '', error: error ?? 'item inválido' });
+      else valid.push({ name: agent.name, role: agent.role });
+    }
+    res.json({ valid: valid.length, errors, total: parsed.items.length });
+  } catch (error) {
+    console.error('Error validating agents:', error);
+    handleRouteError(error, res);
+  }
+});
+
+router.get('/export', async (_req, res) => {
+  try {
+    const rows = await listAllAgents();
+    res.json({
+      items: rows.map((a) => ({
+        name: a.name,
+        role: a.role,
+        description: a.description ?? '',
+        systemPrompt: a.system_prompt,
+        model: a.model || undefined,
+      })),
+      count: rows.length,
+    });
+  } catch (error) {
     handleRouteError(error, res);
   }
 });

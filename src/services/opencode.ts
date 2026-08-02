@@ -166,6 +166,34 @@ export const applyOllamaToOpenCode = async (
   return readJson<OpenCodeConfigFile>(res);
 };
 
+// ---- Permisos / auto-aprobaciones ----
+
+export interface OpenCodePermissions {
+  autoApprove: boolean;
+  read: 'allow' | 'ask' | 'deny';
+  edit: 'allow' | 'ask' | 'deny';
+  bash: 'allow' | 'ask' | 'deny';
+  webfetch: 'allow' | 'ask' | 'deny';
+  websearch: 'allow' | 'ask' | 'deny';
+}
+
+export const getOpenCodePermissions = async (scope: 'project' | 'global'): Promise<OpenCodePermissions> => {
+  const res = await fetch(`${API_BASE}/config/permissions?scope=${scope}`);
+  return readJson<OpenCodePermissions>(res);
+};
+
+export const saveOpenCodePermissions = async (
+  scope: 'project' | 'global',
+  perms: OpenCodePermissions
+): Promise<OpenCodeConfigFile> => {
+  const res = await fetch(`${API_BASE}/config/permissions`, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ scope, ...perms }),
+  });
+  return readJson<OpenCodeConfigFile>(res);
+};
+
 // ---- Historial persistido ----
 
 export const listOpenCodeQueries = async (projectId?: string): Promise<OpenCodeQuery[]> => {

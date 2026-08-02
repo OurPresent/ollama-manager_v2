@@ -1,9 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Sun, Moon, Monitor, Server, Cpu, Palette, Save, AlertTriangle, Terminal, Globe } from 'lucide-react';
+import { Settings, Sun, Moon, Monitor, Server, Cpu, Palette, Save, AlertTriangle, Terminal, Globe, Download, Upload, RefreshCw, MonitorSmartphone, DatabaseBackup, HardDrive } from 'lucide-react';
 import { checkOllamaStatus, setCachedOllamaBaseUrl, startOllama, stopOllama } from '../services/ollama';
 import { checkDockerOllamaStatus, startOllamaDocker, stopOllamaDocker, restartOllamaDocker, getDockerInfo, DockerStatus, DockerInfo } from '../services/dockerControl';
 import { AppSettings, getAppSettings, saveAppSettings, Theme } from '../services/systemApi';
+import {
+  fetchDeviceInfo,
+  prepareEnvironment,
+  createBackup,
+  restoreBackup,
+  DeviceInfo,
+  EnvReport,
+  BackupPayload,
+} from '../services/systemApi';
 import { getBackendUrl } from '../services/backend';
+import { useToast } from '../components/Toast';
 
 interface SettingsViewProps {
   onThemeSaved?: (theme: Theme) => void;
@@ -22,6 +32,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onThemeSaved, onOlla
   const [ollamaStatus, setOllamaStatus] = useState({ running: false, details: '' });
   const [dockerStatus, setDockerStatus] = useState<DockerStatus>({ running: false, details: '', mode: 'unknown' });
   const [dockerInfo, setDockerInfo] = useState<DockerInfo | null>(null);
+  const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
+  const [envReport, setEnvReport] = useState<EnvReport | null>(null);
+  const [deviceBusy, setDeviceBusy] = useState(false);
+  const [backupMsg, setBackupMsg] = useState('');
+  const { showToast } = useToast();
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -156,6 +171,102 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onThemeSaved, onOlla
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadDeviceInfo = async () => {
+    setDeviceBusy(true);
+    try {
+      setDeviceInfo(await fetchDeviceInfo());
+    } catch (error: unknown) {
+      showToast('error', 'Dispositivo', error instanceof Error ? error.message : 'No se pudo obtener la información');
+    } finally {
+      setDeviceBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    loadDeviceInfo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handlePrepare = async () => {
+    setDeviceBusy(true);
+    try {
+      const report = await prepareEnvironment();
+      setEnvReport(report);
+      const okCount = report.checks.filter((c) => c.status === 'ok').length;
+      showToast('success', 'Análisis de entorno', `${okCount}/${report.checks.length} herramientas disponibles`);
+    } catch (error: unknown) {
+      showToast('error', 'Análisis de entorno', error instanceof Error ? error.message : 'Error');
+    } finally {
+      setDeviceBusy(false);
+    }
+  };
+
+  const handleBackup = async () => {
+    setDeviceBusy(true);
+    setBackupMsg('');
+    try {
+      const payload = await createBackup();
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ollama-manager-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      const kb = Math.round(payload.sizeBytes / 1024);
+      setBackupMsg(`Respaldo descargado (${kb} KB).`);
+      showToast('success', 'Respaldo creado', `Se descargó el respaldo de la base de datos (${kb} KB).`);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'No se pudo crear el respaldo';
+      setBackupMsg(msg);
+      showToast('error', 'Respaldo', msg);
+    } finally {
+      setDeviceBusy(false);
+    }
+  };
+
+  const handleRestoreFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      setDeviceBusy(true);
+      setBackupMsg('');
+      try {
+        const parsed = JSON.parse(String(reader.result ?? '')) as BackupPayload;
+        if (!parsed.databaseBase64 || !parsed.app) {
+          throw new Error('El archivo no parece ser un respaldo de ollama-manager.');
+        }
+        if (!window.confirm('Se reemplazará la base de datos actual con la del respaldo. ¿Continuar?')) {
+          return;
+        }
+        await restoreBackup(parsed);
+        setBackupMsg('Base de datos restaurada correctamente.');
+        showToast('success', 'Respaldo restaurado', 'La base de datos fue reemplazada por la del respaldo.');
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : 'No se pudo restaurar el respaldo';
+        setBackupMsg(msg);
+        showToast('error', 'Restaurar respaldo', msg);
+      } finally {
+        setDeviceBusy(false);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (!bytes) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let v = bytes;
+    let i = 0;
+    while (v >= 1024 && i < units.length - 1) {
+      v /= 1024;
+      i++;
+    }
+    return `${v.toFixed(1)} ${units[i]}`;
   };
 
   return (
@@ -407,6 +518,134 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onThemeSaved, onOlla
         >
           Actualizar Estado
         </button>
+      </div>
+
+      {/* Sección Dispositivo */}
+      <div className="bg-white/80 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <MonitorSmartphone className="w-6 h-6 text-amber-500 dark:text-emerald-400" />
+          <h2 className="text-lg font-mono font-bold text-zinc-700 dark:text-zinc-100">Dispositivo</h2>
+          <div className="flex-1" />
+          <button
+            onClick={loadDeviceInfo}
+            disabled={deviceBusy}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 font-mono text-xs transition disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${deviceBusy ? 'animate-spin' : ''}`} />
+            Actualizar
+          </button>
+        </div>
+
+        {deviceInfo ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {[
+              { label: 'Sistema operativo', value: `${deviceInfo.platform === 'win32' ? 'Windows' : deviceInfo.platform === 'darwin' ? 'macOS' : 'Linux'} · ${deviceInfo.release}` },
+              { label: 'Arquitectura', value: deviceInfo.architecture },
+              { label: 'Equipo', value: deviceInfo.hostname },
+              { label: 'CPU', value: `${deviceInfo.cpus} núcleos` },
+              { label: 'Memoria', value: `${formatBytes(deviceInfo.freeMem)} libres de ${formatBytes(deviceInfo.totalMem)}` },
+              { label: 'Tiempo activo', value: `${Math.floor(deviceInfo.uptimeSec / 60 / 60)}h ${Math.floor((deviceInfo.uptimeSec % 3600) / 60)}m` },
+              { label: 'Node.js', value: deviceInfo.nodeVersion || 'no detectado' },
+              { label: 'npm', value: deviceInfo.npmVersion || 'no detectado' },
+              { label: 'Ollama', value: deviceInfo.ollamaInstalled ? 'instalado' : 'no detectado' },
+              { label: 'OpenCode', value: deviceInfo.opencodeInstalled ? 'instalado' : 'no detectado' },
+              { label: 'Docker', value: deviceInfo.dockerAvailable ? (deviceInfo.dockerRunning ? 'corriendo' : 'instalado (detenido)') : 'no detectado' },
+              { label: 'Git', value: deviceInfo.gitInstalled ? 'instalado' : 'no detectado' },
+            ].map((row) => (
+              <div key={row.label} className="flex items-center justify-between bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2">
+                <span className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400">{row.label}</span>
+                <span className="text-[11px] font-mono text-zinc-800 dark:text-zinc-200 truncate ml-2">{row.value}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm font-mono text-zinc-500 dark:text-zinc-400">Cargando información del dispositivo...</p>
+        )}
+
+        <div className="border-t border-zinc-200 dark:border-zinc-800 pt-4">
+          <h3 className="font-mono font-bold text-zinc-700 dark:text-zinc-200 flex items-center gap-2 mb-2">
+            <Terminal className="w-4 h-4 text-amber-500 dark:text-emerald-400" /> Preparar entorno
+          </h3>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
+            Verifica que las herramientas necesarias estén instaladas (Node, npm, Ollama, OpenCode, Docker, Git) y sugiere qué instalar.
+          </p>
+          <button
+            onClick={handlePrepare}
+            disabled={deviceBusy}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-50 dark:bg-emerald-500/10 border border-amber-300 dark:border-emerald-500/30 text-amber-600 dark:text-emerald-400 hover:bg-amber-100 dark:hover:bg-emerald-500/20 font-mono text-xs transition disabled:opacity-50"
+          >
+            <HardDrive className="w-3.5 h-3.5" />
+            Analizar entorno
+          </button>
+
+          {envReport && (
+            <div className="mt-3 space-y-2">
+              {envReport.checks.map((c) => (
+                <div key={c.name} className="flex items-center gap-2 text-[11px] font-mono">
+                  <span
+                    className={`px-1.5 py-0.5 rounded text-[10px] ${
+                      c.status === 'ok'
+                        ? 'bg-emerald-50 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                        : c.status === 'warning'
+                        ? 'bg-amber-50 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400'
+                        : 'bg-rose-50 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400'
+                    }`}
+                  >
+                    {c.status.toUpperCase()}
+                  </span>
+                  <span className="text-zinc-700 dark:text-zinc-200 w-28">{c.name}</span>
+                  <span className="text-zinc-500 dark:text-zinc-400 flex-1">{c.detail}</span>
+                </div>
+              ))}
+              {envReport.suggestions.length > 0 && (
+                <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/30 rounded-lg p-3 space-y-1">
+                  <p className="text-[10px] font-mono text-amber-700 dark:text-amber-300">Sugerencias:</p>
+                  {envReport.suggestions.map((s, i) => (
+                    <p key={i} className="text-[11px] font-mono text-amber-700 dark:text-amber-300">• {s}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Sección Respaldos */}
+      <div className="bg-white/80 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <DatabaseBackup className="w-6 h-6 text-sky-500 dark:text-blue-400" />
+          <h2 className="text-lg font-mono font-bold text-zinc-700 dark:text-zinc-100">Respaldos</h2>
+        </div>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          Exporta o importa la base de datos completa (modelos, agentes, chats, planes y configuración) como un archivo JSON.
+        </p>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={handleBackup}
+            disabled={deviceBusy}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-50 dark:bg-emerald-500/10 border border-amber-300 dark:border-emerald-500/30 text-amber-600 dark:text-emerald-400 hover:bg-amber-100 dark:hover:bg-emerald-500/20 font-mono text-xs transition disabled:opacity-50"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Exportar respaldo
+          </button>
+          <label className="flex items-center gap-1.5 cursor-pointer px-4 py-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 font-mono text-xs transition">
+            <Upload className="w-3.5 h-3.5" />
+            Importar respaldo
+            <input type="file" accept=".json,application/json" onChange={handleRestoreFile} className="hidden" />
+          </label>
+        </div>
+
+        {deviceInfo && (
+          <p className="text-[10px] font-mono text-zinc-400 break-all">
+            Base de datos: {deviceInfo.databasePath}
+          </p>
+        )}
+        {backupMsg && (
+          <p className={`text-xs font-mono ${backupMsg.startsWith('Respaldo') || backupMsg.startsWith('Base') ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
+            {backupMsg}
+          </p>
+        )}
       </div>
 
       {/* Información del Sistema */}

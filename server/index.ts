@@ -18,11 +18,14 @@ import { planRouter } from './routes/planRoutes';
 import { approvalRouter } from './routes/approvalRoutes';
 import { systemRouter } from './routes/systemRoutes';
 import { opencodeRouter } from './routes/opencodeRoutes';
+import { skillsRouter } from './routes/skillsRoutes';
+import { integrationsRouter } from './routes/integrationsRoutes';
+import { deviceRouter } from './routes/deviceRoutes';
 import { stopManagedOpenCodeServer } from './services/opencodeServerManager';
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 app.use('/api/settings', settingsRouter);
 app.use('/api/projects', projectRouter);
@@ -39,6 +42,9 @@ app.use('/api/plans', planRouter);
 app.use('/api/approvals', approvalRouter);
 app.use('/api/system', systemRouter);
 app.use('/api/opencode', opencodeRouter);
+app.use('/api/skills', skillsRouter);
+app.use('/api/integrations', integrationsRouter);
+app.use('/api/device', deviceRouter);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', service: 'ollama-manager-v2' });

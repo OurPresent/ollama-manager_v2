@@ -176,3 +176,79 @@ export const applyOllamaProvider = async (
   await writeConfigFile(scope, content);
   return { path: filePath, exists: true, content, scope };
 };
+
+export type PermissionLevel = 'allow' | 'ask' | 'deny';
+
+export interface PermissionsConfig {
+  autoApprove: boolean;
+  read: PermissionLevel;
+  edit: PermissionLevel;
+  bash: PermissionLevel;
+  webfetch: PermissionLevel;
+  websearch: PermissionLevel;
+}
+
+const PERMISSION_KEYS: Array<[keyof Omit<PermissionsConfig, 'autoApprove'>, string]> = [
+  ['read', 'read'],
+  ['edit', 'edit'],
+  ['bash', 'bash'],
+  ['webfetch', 'webfetch'],
+  ['websearch', 'websearch'],
+];
+
+export const applyPermissions = async (
+  scope: ConfigScope,
+  config: PermissionsConfig
+): Promise<ConfigFileInfo> => {
+  const { path: filePath } = await resolveConfigFile(scope);
+  const exists = fs.existsSync(filePath);
+  let current: Record<string, unknown> = {};
+  if (exists) {
+    try {
+      current = parseConfig(fs.readFileSync(filePath, 'utf-8'));
+    } catch {
+      current = {};
+    }
+  }
+
+  if (config.autoApprove) {
+    current.permission = { '*': 'allow' };
+  } else {
+    const permission: Record<string, string> = {};
+    for (const [key] of PERMISSION_KEYS) {
+      const level = config[key];
+      if (level && level !== 'ask') permission[key] = level;
+    }
+    current.permission = permission;
+  }
+
+  const content = `${JSON.stringify(current, null, 2)}\n`;
+  await writeConfigFile(scope, content);
+  return { path: filePath, exists: true, content, scope };
+};
+
+export const getPermissionsSummary = async (scope: ConfigScope): Promise<PermissionsConfig> => {
+  const { path: filePath } = await resolveConfigFile(scope);
+  const exists = fs.existsSync(filePath);
+  let current: Record<string, unknown> = {};
+  if (exists) {
+    try {
+      current = parseConfig(fs.readFileSync(filePath, 'utf-8'));
+    } catch {
+      current = {};
+    }
+  }
+  const permission = (current.permission ?? {}) as Record<string, unknown>;
+  const pick = (key: string): PermissionLevel => {
+    const v = permission[key];
+    return v === 'allow' || v === 'deny' ? v : 'ask';
+  };
+  return {
+    autoApprove: Boolean(permission['*']),
+    read: pick('read'),
+    edit: pick('edit'),
+    bash: pick('bash'),
+    webfetch: pick('webfetch'),
+    websearch: pick('websearch'),
+  };
+};

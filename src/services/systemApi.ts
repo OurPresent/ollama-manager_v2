@@ -1,4 +1,4 @@
-import { PersistedAgent } from '../types';
+import { PersistedAgent, BulkImportResult } from '../types';
 import type { ModelUsageDto, ProjectDto, SystemStatsDto } from '../types/dto';
 
 const API_BASE = '/api';
@@ -193,5 +193,124 @@ export const deleteAgent = async (id: string): Promise<void> => {
 
   if (!res.ok) {
     throw new Error('No se pudo eliminar el agente');
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Importación masiva de agentes (JSON)
+// ---------------------------------------------------------------------------
+
+export const importAgentsBulk = async (items: unknown[]): Promise<BulkImportResult> => {
+  const res = await fetch(`${API_BASE}/agents/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: unknown } | null;
+    throw new Error(typeof data?.error === 'string' ? data.error : 'No se pudieron importar los agentes');
+  }
+  return (await res.json()) as BulkImportResult;
+};
+
+export const fetchAgentsImportTemplate = async (): Promise<{ items: string; headers: string[] }> => {
+  const res = await fetch(`${API_BASE}/agents/import/template`);
+  if (!res.ok) throw new Error('No se pudo obtener el formato de agentes');
+  const data = (await res.json()) as { items: string; headers: string[] };
+  return { items: data.items ?? '', headers: data.headers ?? [] };
+};
+
+export const validateAgentsBulk = async (
+  items: unknown[]
+): Promise<{ valid: number; errors: Array<{ index: number; name: string; error: string }>; total: number }> => {
+  const res = await fetch(`${API_BASE}/agents/import/validate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }),
+  });
+  if (!res.ok) throw new Error('No se pudo validar el JSON de agentes');
+  return (await res.json()) as { valid: number; errors: Array<{ index: number; name: string; error: string }>; total: number };
+};
+
+export const exportAgentsBulk = async (): Promise<Record<string, unknown>[]> => {
+  const res = await fetch(`${API_BASE}/agents/export`);
+  if (!res.ok) throw new Error('No se pudo exportar los agentes');
+  const data = (await res.json()) as { items: Record<string, unknown>[] };
+  return data.items ?? [];
+};
+
+// ---------------------------------------------------------------------------
+// Dispositivo y respaldos
+// ---------------------------------------------------------------------------
+
+export interface DeviceInfo {
+  platform: string;
+  platformVersion: string;
+  release: string;
+  architecture: string;
+  hostname: string;
+  cpus: number;
+  cpuModel: string;
+  totalMem: number;
+  freeMem: number;
+  uptimeSec: number;
+  nodeVersion: string;
+  npmVersion: string;
+  dockerAvailable: boolean;
+  dockerRunning: boolean;
+  ollamaInstalled: boolean;
+  opencodeInstalled: boolean;
+  gitInstalled: boolean;
+  backendUrl: string;
+  databasePath: string;
+}
+
+export interface EnvReport {
+  checks: Array<{
+    name: string;
+    installed: boolean;
+    version: string;
+    status: 'ok' | 'warning' | 'error' | 'info';
+    detail: string;
+  }>;
+  suggestions: string[];
+  preparedAt: string;
+}
+
+export interface BackupPayload {
+  app: string;
+  version: string;
+  exportedAt: string;
+  databaseBase64: string;
+  sizeBytes: number;
+}
+
+export const fetchDeviceInfo = async (): Promise<DeviceInfo> => {
+  const res = await fetch(`${API_BASE}/device/info`);
+  if (!res.ok) throw new Error('No se pudo obtener la información del dispositivo');
+  return (await res.json()) as DeviceInfo;
+};
+
+export const prepareEnvironment = async (): Promise<EnvReport> => {
+  const res = await fetch(`${API_BASE}/device/prepare`, { method: 'POST' });
+  if (!res.ok) throw new Error('No se pudo analizar el entorno');
+  return (await res.json()) as EnvReport;
+};
+
+export const createBackup = async (): Promise<BackupPayload> => {
+  const res = await fetch(`${API_BASE}/device/backup`);
+  if (!res.ok) throw new Error('No se pudo crear el respaldo');
+  return (await res.json()) as BackupPayload;
+};
+
+export const restoreBackup = async (payload: BackupPayload): Promise<void> => {
+  const res = await fetch(`${API_BASE}/device/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: unknown } | null;
+    throw new Error(typeof data?.error === 'string' ? data.error : 'No se pudo restaurar el respaldo');
   }
 };

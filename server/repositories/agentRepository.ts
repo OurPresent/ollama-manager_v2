@@ -210,3 +210,76 @@ export const setAgentActive = async (id: string, active: boolean): Promise<void>
     [active ? 1 : 0, id]
   );
 };
+
+export interface AgentImportResult {
+  imported: number;
+  updated: number;
+  skipped: number;
+  errors: Array<{ index: number; name: string; error: string }>;
+  total: number;
+}
+
+/** Normaliza un item crudo del JSON de import de agentes y valida sus headers. */
+export const normalizeAgentItem = (
+  raw: unknown,
+  index: number
+): { agent?: NewAgent; error?: string } => {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return { error: `[${index}] debe ser un objeto JSON` };
+  }
+  const obj = raw as Record<string, unknown>;
+  const name = String(obj.name ?? obj.Name ?? '').trim();
+  const role = String(obj.role ?? obj.Role ?? '').trim();
+  const systemPrompt = String(obj.systemPrompt ?? obj.system_prompt ?? obj.SystemPrompt ?? '').trim();
+
+  if (!name) {
+    return { error: `[${index}] falta el header obligatorio "name"` };
+  }
+  if (!role) {
+    return { error: `[${index}] falta el header obligatorio "role"` };
+  }
+  if (!systemPrompt) {
+    return { error: `[${index}] falta el header obligatorio "systemPrompt"` };
+  }
+
+  const model = obj.model ? String(obj.model) : undefined;
+  return {
+    agent: {
+      name,
+      role,
+      description: obj.description ? String(obj.description) : '',
+      systemPrompt,
+      model,
+      isBuiltin: false,
+    },
+  };
+};
+
+/** Importa una lista de agentes (JSON array). El modelo queda vacío por defecto → usa el modelo global preseleccionado. */
+export const importAgents = async (items: unknown[]): Promise<AgentImportResult> => {
+  const result: AgentImportResult = { imported: 0, updated: 0, skipped: 0, errors: [], total: items.length };
+  const seen = new Set<string>();
+
+  for (let i = 0; i < items.length; i++) {
+    const { agent, error } = normalizeAgentItem(items[i], i);
+    if (error || !agent) {
+      result.errors.push({ index: i, name: '', error: error ?? 'item inválido' });
+      continue;
+    }
+    if (seen.has(agent.name.toLowerCase())) {
+      result.skipped++;
+      continue;
+    }
+    seen.add(agent.name.toLowerCase());
+
+    const existing = await queryOne('SELECT id FROM agents WHERE name = ? LIMIT 1', [agent.name]);
+    if (existing) {
+      await updateAgent(String(existing.id), agent);
+      result.updated++;
+    } else {
+      await insertAgent(agent);
+      result.imported++;
+    }
+  }
+  return result;
+};

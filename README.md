@@ -1,400 +1,248 @@
-# 🚀 LLMX v2 - Control Center Local
+# 🚀 Ollama Manager v2
 
-**Orquestación local de Modelos, Agentes y Grafos de Memoria con Python**
+**Control Center Local: Modelos, Agentes, Planes y OpenCode**
 
-LLMX v2 es una aplicación web completa para gestionar modelos de lenguaje locales (Ollama), ejecutar pipelines de agentes especializados, mantener un grafo de conocimiento persistente de tus proyectos, y realizar operaciones de archivos reales mediante Python.
+Aplicación web de escritorio local para gestionar modelos de lenguaje (Ollama), ejecutar agentes especializados, orquestar planes de desarrollo, chatear con contexto de proyecto y operar el agente autónomo **OpenCode** — todo con una sola base de datos SQLite local.
 
 ## ✨ Características
 
-- **🤖 Chat con Memoria Contextual**: Consulta tu código con IA que inyecta automáticamente el contexto del proyecto (bitácoras, entidades, componentes)
-- **🐍 Acciones de Sistema con Python**: El LLM puede crear, leer, escribir, eliminar y listar archivos dentro del proyecto activo mediante bloques `<action>`
-- **🐳 Control de Docker con Python**: Inicia, detiene, reinicia y monitorea Ollama en Docker o Local desde la interfaz
-- **📦 Sección Ollama unificada**: Inicia/detiene el servicio Ollama (Docker o Local), lista, descarga y elimina modelos, y muestra cuáles están cargados en memoria
-- **🔗 Pipeline de Agentes**: Ejecuta flujos de trabajo automáticos con agentes especializados (PM, Backend, Frontend, DBA, QA, DevOps) que pueden crear archivos reales
-- **🎯 Selección y orquestación de agentes**: Activa/desactiva agentes con un switch (persistido en SQLite) y elige qué agentes y en qué orden participan en cada plan, organizados por funcionalidad
-- **📊 Dashboard de consumo real**: En Inicio se muestra la RAM en uso, el modelo que más memoria consume y el uso histórico por modelo (sesiones, mensajes y corridas)
-- **🧪 Playground**: Prueba modelos con parámetros personalizados (temperature, top_p, etc.)
-- **📊 Historial Completo**: Revisa todas las consultas, agentes ejecutados y cambios en el grafo de conocimiento
-- **💾 Memoria Persistente**: Base de datos SQLite local que evoluciona con cada interacción (un solo backend, sin localStorage)
-- **🎨 Tema Claro/Oscuro/Sistema**: Interfaz con tema claro (amarillo + celeste) y tema oscuro (verde + azul), con detección automática del sistema
+- **🤖 Chat con Memoria Contextual**: consulta tu código con IA que inyecta automáticamente el contexto del proyecto (estructura, resumen, bitácoras)
+- **⚙️ Gestión de Ollama**: inicia/detiene el servicio (Local o Docker), lista, descarga y elimina modelos, y muestra cuáles están cargados en memoria
+- **🔗 Pipeline de Agentes**: agentes especializados persistidos en SQLite (PM, Backend, Frontend, DBA, QA, DevOps), con switch de activación y asignación de modelo por agente
+- **📥 Carga masiva (JSON)**: importa y exporta **skills** y **agentes** desde un archivo JSON en la vista Agentes, con validación de headers y resultado detallado (importados/actualizados/omitidos/errores). Los skills instalados se escriben como `SKILL.md` en `.opencode/skills` del proyecto activo o en `~/.agents/skills` (global)
+- **🧩 Integraciones**: sección dedicada a detectar herramientas locales (Docker, PostgreSQL, Redis, MongoDB, Ollama, OpenCode, Supabase, Firebase, Puppeteer, …), con guías de configuración paso a paso, variables de entorno copiables y enlaces a documentación — pensada como ecosistema de trabajo local
+- **🪄 Integración OpenCode**: chat, sesiones, historial en SQLite, comandos y **auto-aprobaciones** (lectura/edición/terminal/navegador/búsquedas web) con modo "auto" global, editable desde la pestaña Configuración
+- **📊 Dashboard de consumo real**: RAM en uso, modelo con mayor consumo y uso histórico por modelo (sesiones, mensajes y corridas)
+- **💾 Memoria Persistente**: una sola base SQLite (`server/memory.db`) respaldada con **exportar/importar respaldo** desde Configuración → Respaldos
+- **📱 Sección Dispositivo**: información del equipo (SO, CPU, RAM, uptime), análisis del entorno ("preparar entorno") y estado de herramientas (Node, npm, Ollama, OpenCode, Docker, Git)
+- **🎨 Tema Claro/Oscuro/Sistema**
 
 ## 🏗️ Arquitectura
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                      LLMX v2 Architecture                       │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ┌──────────────┐      ┌──────────────┐      ┌──────────────┐   │
-│  │   Frontend   │      │   Backend    │      │   Ollama     │   │
-│  │   (Vite)     │◄────►│  (Express)   │◄────►│   Server     │   │
-│  │   Port 8502  │      │   Port 8502  │      │  Port 11434  │   │
-│  │  React + TS  │      │  TypeScript  │      │  Docker/Local│   │
-│  └──────────────┘      └──────┬───────┘      └──────────────┘   │
-│         │                      │                                │
-│         │                      │                                │
-│         │                ┌─────┴──────┐                         │
-│         │                │  Python    │                         │
-│         │                │ actions.py │                         │
-│         │                │            │                         │
-│         │                │ 📁 Files   │                        │
-│         │                │ 🐳 Docker  │                        │
-│         │                └────────────┘                         │
-│         │                                                       │
-│  ┌──────┴────────┐      ┌──────────────┐                        │
-│  │  Tailwind CSS │      │  SQLite DB   │                        │
-│  │  Light/Dark   │      │  (sql.js)    │                        │
-│  │  Theme System │      │  memory.db   │                        │
-│  └───────────────┘      └──────────────┘                        │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                      Ollama Manager v2                           │
+├──────────────────────────────────────────────────────────────────┤
+│   Frontend (Vite · React · TS)          Backend (Express · TS)   │
+│   http://localhost:8503 ──────────────► http://localhost:8502    │
+│                                            │                     │
+│                                            ├──► Ollama (11434)   │
+│                                            ├──► OpenCode (4096)  │
+│                                            ├──► SQLite (sql.js)  │
+│                                            │      memory.db      │
+│                                            └──► Sistema (Python) │
+│                                                                    │
+└──────────────────────────────────────────────────────────────────┘
 ```
+
+> El backend sirve tanto la API (`/api/*`) como el frontend compilado en producción, en el puerto **8502**.
 
 ## 📋 Requisitos Previos
 
-- **Node.js** >= 18.0.0
-- **pnpm** >= 8.0.0 (o npm/yarn)
-- **Python** >= 3.8 (para acciones de sistema y control de Docker)
-- **Ollama** instalado y corriendo en http://localhost:11434
+- **Node.js** >= 18.0.0 y **npm** (o **pnpm**)
+- **Ollama** instalado y corriendo en `http://localhost:11434` (necesario para modelos locales)
+- **OpenCode** CLI instalado y en el PATH (necesario para el tab OpenCode)
 - **Docker** (opcional, para ejecutar Ollama en contenedor)
+- **Git** (opcional)
 
-## 🚀 Instalación
+## 🚀 Instalación por Sistema Operativo
 
-### 1. Clonar el repositorio
+### 🪟 Windows
+
+1. **Node.js**: descarga el instalador LTS desde [nodejs.org](https://nodejs.org/). Marca la opción *"Add to PATH"* durante la instalación.
+2. **Ollama**: descarga desde [ollama.com/download](https://ollama.com/download). Tras instalarlo, el servicio arranca solo en `http://localhost:11434`.
+3. **OpenCode**: instala la CLI globalmente:
+   ```bash
+   npm install -g opencode-ai
+   ```
+4. Abre **PowerShell** (o Git Bash / CMD) en la carpeta del proyecto:
+   ```bash
+   npm install        # o: pnpm install
+   npm run dev
+   ```
+5. Abre **http://localhost:8502**.
+
+> 💡 En Windows usa PowerShell como administrador si algún comando requiere permisos. Si usas el modo Docker, instala **Docker Desktop** desde [docker.com](https://www.docker.com/products/docker-desktop/).
+
+### 🍎 macOS
+
+1. **Node.js** (recomendado con Homebrew):
+   ```bash
+   brew install node
+   ```
+2. **Ollama**:
+   ```bash
+   brew install ollama && brew services start ollama
+   ```
+   o descarga el .dmg desde [ollama.com/download](https://ollama.com/download).
+3. **OpenCode**:
+   ```bash
+   npm install -g opencode-ai
+   ```
+4. Instala dependencias y ejecuta:
+   ```bash
+   npm install && npm run dev
+   ```
+5. Abre **http://localhost:8502**.
+
+### 🐧 Linux (Debian/Ubuntu)
+
+1. **Node.js** (desde el repositorio oficial):
+   ```bash
+   curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+   sudo apt-get install -y nodejs
+   ```
+2. **Ollama** (instalador oficial):
+   ```bash
+   curl -fsSL https://ollama.com/install.sh | sh
+   ```
+3. **OpenCode**:
+   ```bash
+   npm install -g opencode-ai
+   ```
+4. Instala dependencias y ejecuta:
+   ```bash
+   npm install && npm run dev
+   ```
+5. Abre **http://localhost:8502**.
+
+### 📦 Todos los sistemas (resumen)
 
 ```bash
 git clone https://github.com/OurPresent/ollama-manager_v2.git
 cd ollama-manager_v2
+npm install
+npm run dev
 ```
 
-### 2. Instalar dependencias
-
-```bash
-pnpm install
-```
-
-### 3. Configurar variables de entorno (opcional)
-
-Crea un archivo `.env` en la raíz del proyecto:
-
-```env
-VITE_OLLAMA_URL=http://localhost:11434
-```
-
-### 4. Iniciar la aplicación
-
-```bash
-# Desarrollo (frontend + backend simultáneamente)
-pnpm dev
-
-# O iniciar por separado:
-pnpm dev:frontend  # Solo frontend (http://localhost:8502)
-pnpm dev:backend   # Solo backend (http://localhost:8502)
-```
-
-### 5. Abrir en el navegador
-
-La aplicación se abrirá automáticamente en: **http://localhost:8502**
-
-## 📦 Scripts Disponibles
+## 📖 Scripts Disponibles
 
 | Comando | Descripción |
 |---------|-------------|
-| `pnpm dev` | Inicia frontend y backend simultáneamente |
-| `pnpm dev:frontend` | Inicia solo el servidor Vite (puerto 8502) |
-| `pnpm dev:backend` | Inicia solo el servidor Express (puerto 8502) |
+| `npm run dev` | Inicia backend + frontend simultáneamente |
+| `npm run dev:frontend` | Solo Vite dev server (puerto 8503) |
+| `npm run dev:backend` | Solo Express server (puerto 8502) |
 
-## 🐍 Integración con Python
+## 🔗 Documentación Oficial
 
-### Acciones de Archivos
+| Herramienta | Documentación |
+|-------------|---------------|
+| **Ollama** | [docs.ollama.com](https://docs.ollama.com/) |
+| **OpenCode** | [opencode.ai/docs](https://opencode.ai/docs/) |
+| — Permisos / auto-aprobaciones | [opencode.ai/docs/permissions](https://opencode.ai/docs/permissions/) |
+| — Configuración (`opencode.json`) | [opencode.ai/docs/config](https://opencode.ai/docs/config/) |
+| — Providers | [opencode.ai/docs/providers](https://opencode.ai/docs/providers/) |
+| **Docker** | [docs.docker.com](https://docs.docker.com/) |
+| **Node.js** | [nodejs.org/docs](https://nodejs.org/en/docs) |
 
-El LLM puede realizar operaciones de archivos dentro del proyecto activo usando bloques `<action>` en sus respuestas. Estas acciones son ejecutadas automáticamente por Python.
+## 🪄 Integración con OpenCode
 
-**Acciones disponibles:**
+OpenCode es el agente autónomo integrado en el tab *OpenCode* de la app. Para usarlo:
 
-| Acción | Descripción | Parámetros |
-|--------|-------------|------------|
-| `write_file` | Crear o sobrescribir un archivo | `path`, `content` |
-| `create_file` | Crear un archivo nuevo | `path`, `content` |
-| `read_file` | Leer el contenido de un archivo | `path` |
-| `append_file` | Añadir contenido al final de un archivo | `path`, `content` |
-| `delete_file` | Eliminar un archivo | `path` |
-| `create_directory` | Crear un directorio | `path` |
-| `list_files` | Listar archivos en un directorio | `path` |
-| `get_file_info` | Obtener información de un archivo | `path` |
+1. Asegúrate de tener la CLI instalada: `opencode --version`
+2. En la app, ve a **OpenCode → Estado → Iniciar servidor**
+3. En **Configuración**, conecta el provider de Ollama (botón *"Aplicar provider"*)
+4. Configura las **auto-aprobaciones**: activa el **modo auto** para que OpenCode lea/edite archivos, ejecute comandos y navegue sin pedir confirmación, o ajusta cada acción por separado (`allow` / `ask` / `deny`)
+5. Abre un chat de sesión y escribe tu consulta. Los mensajes y el historial quedan persistidos en SQLite.
 
-**Ejemplo de uso del LLM:**
+### Auto-aprobaciones
 
-```
-<action>
-{"action": "write_file", "path": "src/components/Button.tsx", "content": "import React from 'react';\n\nexport const Button = () => ..."}
-</action>
-```
+El bloque `permission` de `opencode.json` controla qué acciones se aprueban automáticamente:
 
-### Control de Docker/Ollama
+| Acción | Clave | Valores |
+|--------|-------|---------|
+| Lectura de archivos | `read` | `allow` \| `ask` \| `deny` |
+| Edición de archivos | `edit` | `allow` \| `ask` \| `deny` |
+| Comandos en terminal | `bash` | `allow` \| `ask` \| `deny` |
+| Navegador / webfetch | `webfetch` | `allow` \| `ask` \| `deny` |
+| Búsquedas web | `websearch` | `allow` \| `ask` \| `deny` |
 
-Python maneja el control completo de Docker para Ollama:
+Con el **modo auto-aprobación activado** se escribe `"permission": { "*": "allow" }`. Es cómodo para flujos autónomos, pero **usa un scope de proyecto** y revisa los comandos que ejecuta.
 
-| Acción Python | Endpoint | Descripción |
-|---------------|----------|-------------|
-| `docker_check_ollama` | `GET /api/docker/ollama/status` | Verifica si Ollama está corriendo (Docker o Local) |
-| `docker_start_ollama` | `POST /api/docker/ollama/start` | Inicia el contenedor Docker de Ollama |
-| `docker_stop_ollama` | `POST /api/docker/ollama/stop` | Detiene el contenedor Docker de Ollama |
-| `docker_restart_ollama` | `POST /api/docker/ollama/restart` | Reinicia el contenedor Docker de Ollama |
-| `docker_get_info` | `GET /api/docker/info` | Información completa de Docker (versión, contenedores, puertos) |
-| `system_stats` | `GET /api/system/stats` | Estadísticas del sistema: RAM total/uso/libre, % en uso y RAM del proceso Ollama |
+## 📥 Carga masiva de Skills y Agentes
 
-**Seguridad:** Todas las operaciones de archivos están limitadas al directorio del proyecto activo. Los intentos de path traversal son bloqueados.
+En la vista **Agentes** tienes la card *Carga masiva (JSON)* con dos pestañas: **Skills** y **Agentes**.
 
-## 🎨 Tema Claro/Oscuro
+- **Skills**: array de objetos con headers obligatorios `name` (slug válido: letras, números, guiones) y `content` (instrucciones en Markdown). Opcionales: `description`, `references` (array de `{ path, content }`), `scope` (`project` | `global`) y `enabled`. Al importar, los skills nuevos/actualizados se instalan automáticamente como `SKILL.md` en el proyecto activo (`.opencode/skills`) y quedan listados en el modal *Skills instalados*, donde puedes instalarlos también en global (`~/.agents/skills`), activar/desactivar, desinstalar o eliminar.
+- **Agentes**: array de objetos con headers obligatorios `name`, `role` y `systemPrompt` (opcionales: `description`, `model`). Si no asignas modelo, el agente usa el **modelo global** preseleccionado.
+- **Validar**: comprueba headers y sintaxis sin persistir. **Importar**: inserta/actualiza y te reporta importados, actualizados, omitidos y errores por item. **Exportar**: descarga un `.json` con el catálogo actual.
 
-La aplicación soporta tres modos de tema:
+El botón *ver formato* muestra los headers y un ejemplo listo para pegar.
 
-- **Oscuro**: Interfaz oscura con acentos verdes (emerald) y azules
-- **Claro**: Interfaz blanca con acentos amarillos (amber) y celestes (sky)
-- **Sistema**: Se adapta automáticamente a la preferencia del sistema operativo
+## 🧩 Integraciones (ecosistema local)
 
-El tema se aplica antes del renderizado (sin parpadeo) mediante un script inline en `index.html`, y se persiste en `localStorage`.
+La vista **Integraciones** (barra lateral) te muestra un catálogo de servicios y herramientas que puedes ejecutar en local — todo sin tocar la nube:
 
-**Para cambiar el tema:** Configuración → Apariencia → Seleccionar tema
+- **Supabase (local)**, **Firebase Emulators**, **PostgreSQL**, **MySQL/MariaDB**, **MongoDB**, **Redis**, **Docker**, **Puppeteer/Playwright**, **Ollama** y **OpenCode**.
+- Cada card indica si la herramienta fue **detectada** en tu equipo (CLI disponible, paquete npm instalado o Docker presente).
+- **Ver guía** genera un markdown con pasos de configuración, variables de entorno y documentación oficial.
+- **Copiar variables** coloca las `.env` correspondientes en el portapapeles.
+- **Re-detectar** vuelve a comprobar la disponibilidad local de cada integración.
 
-## 🗄️ Base de Datos
+## 🗄️ Base de Datos y Respaldos
 
-La aplicación utiliza **SQLite** (a través de sql.js) para almacenar:
+SQLite (vía sql.js) en `server/memory.db`. Tablas principales: `graph_nodes`, `projects`, `agents`, `skills`, `app_settings`, `chat_sessions`, `chat_messages`, `agent_runs`, `opencode_sessions`, `opencode_messages`, `task_logs`, `audit_log`.
 
-### Tablas
+**Respaldos** (Configuración → Respaldos):
 
-1. **graph_nodes**: Grafo de conocimiento del proyecto
-   - Entidades, Componentes, Servicios, Módulos
-   - Relaciones y metadatos
+- **Exportar respaldo**: descarga un archivo JSON con la base completa (base64) + manifest.
+- **Importar respaldo**: selecciona el archivo, confirma y se restaura la BD en memoria re-aplicando el esquema.
 
-2. **projects**: Proyectos registrados y proyecto activo
-   - Rutas, metadatos y estados
-   - Registro de activación de proyecto
+> ⚠️ Al importar se **reemplaza** la base actual. Haz un respaldo antes de probar.
 
-3. **agents**: Agentes especializados del pipeline
-   - Nombre, rol, system prompt, modelo asignado
-   - `is_active`: controla si el agente se ejecuta en los planes
+## 💾 Sección Dispositivo
 
-4. **app_settings / project_settings**: Configuración global y por proyecto
-
-5. **chat_sessions / chat_messages**: Sesiones y mensajes del chat
-   - Registran el modelo usado en cada consulta (fuente del uso histórico)
-
-6. **agent_runs**: Ejecuciones de agentes en los planes
-   - Modelo usado y resultados (fuente del uso histórico)
-
-7. **task_logs**: Bitácoras episódicas en Markdown
-   - Tareas del proyecto
-   - Tags y metadatos
-
-### Ubicación
-
-```
-server/
-├── memory.db          # Base de datos SQLite
-├── schema.sql         # Esquema de la base de datos
-└── actions.py         # Script de Python para acciones de sistema
-```
+En **Configuración → Dispositivo**: información del equipo (SO, arquitectura, CPU, RAM, uptime) y botón **"Analizar entorno"** que verifica Node, npm, Ollama, OpenCode, Docker y Git, marcando estado (ok/warning/error) y sugiriendo qué instalar.
 
 ## 🛠️ Stack Tecnológico
 
-### Frontend
-- **React 18** - Biblioteca UI
-- **TypeScript 5** - Tipado estático
-- **Vite 5** - Build tool y dev server
-- **Tailwind CSS 3** - Estilos utility-first con dark mode
-- **Lucide React** - Iconos
-
-### Backend
-- **Express 4** - Servidor web
-- **SQLite (sql.js)** - Base de datos
-- **CORS** - Manejo de cross-origin requests
-- **TSX** - Ejecución de TypeScript en Node.js
-- **child_process (spawn)** - Ejecución de scripts Python
-
-### Python
-- **Python 3.8+** - Script de acciones de sistema
-- **subprocess** - Control de Docker
-- **os / json** - Operaciones de archivos y parsing
-
-### DevOps
-- **Concurrently** - Ejecución paralela de scripts
-- **pnpm** - Gestor de paquetes
-
-## 📁 Estructura del Proyecto
-
-```
-ollama-manager-v2/
-├── src/
-│   ├── components/          # Componentes reutilizables
-│   │   ├── Sidebar.tsx      # Barra lateral con control Docker
-│   │   └── MetricCard.tsx   # Cards de métricas
-│   ├── services/            # Lógica de negocio
-│   │   ├── ollama.ts        # Cliente de Ollama
-│   │   ├── dockerControl.ts # Control de Docker (Python)
-│   │   ├── fileActions.ts   # Acciones de archivos (Python)
-│   │   ├── systemApi.ts     # Cliente del backend (agentes, sistema, stats)
-│   │   ├── approvalSystem.ts # Sistema de aprobaciones
-│   │   └── fileReference.ts # Referencias de archivos ($)
-│   ├── types/               # Tipos TypeScript
-│   │   ├── index.ts
-│   │   └── dto.ts           # DTOs del backend (SystemStats, ModelUsage)
-│   ├── views/               # Vistas principales
-│   │   ├── HomeView.tsx     # Dashboard con consumo de RAM y modelos
-│   │   ├── ChatView.tsx     # Chat con acciones Python
-│   │   ├── AgentsView.tsx   # Gestor de agentes + switch activación
-│   │   ├── PlanesView.tsx   # Pipeline con selección/orquestación de agentes
-│   │   ├── OllamaView.tsx   # Gestor de modelos y servicio
-│   │   ├── PlaygroundView.tsx # Testing de prompts
-│   │   ├── HistoryView.tsx  # Historial y grafo
-│   │   └── SettingsView.tsx # Configuración + Docker info
-│   ├── App.tsx              # Componente principal (estado central de agentes)
-│   ├── main.tsx             # Entry point
-│   └── index.css            # Estilos globales
-├── server/
-│   ├── index.ts             # Servidor Express + montado de rutas
-│   ├── actions.py           # Script Python (archivos + Docker + system_stats)
-│   ├── db.ts                # Conexión SQLite
-│   ├── types.d.ts           # Tipos para sql.js
-│   ├── schema.sql           # Esquema de base de datos
-│   ├── core/                # Tipos y utilidades del dominio
-│   ├── repositories/        # Acceso a datos (agentes, etc.)
-│   ├── routes/              # Rutas Express (agents, ollama, docker, system, chat)
-│   └── services/            # Servicios (ollama, pythonRunner, systemStats, modelUsage)
-├── public/
-│   └── vite.svg             # Favicon
-├── index.html               # HTML con script anti-FOUC
-├── package.json
-├── vite.config.ts
-├── tsconfig.json
-├── tailwind.config.js       # darkMode: 'class'
-├── postcss.config.js
-└── README.md
-```
-
-## 🎯 Guía de Uso
-
-### 1. Inicio (Dashboard)
-- Visualiza métricas en vivo: modelos instalados, agentes activos/total, **RAM en uso** y estado del servidor
-- **Dashboard de consumo real**: RAM total/libre/en uso con barra de colores, RAM del proceso Ollama, el modelo con mayor consumo en memoria y el uso histórico por modelo (sesiones, mensajes, corridas)
-- Accesos rápidos a Chat, Agentes, Planes y Ollama
-
-### 2. Configurar Proyecto Activo
-- En la barra lateral, escribe el nombre del proyecto o selecciona una carpeta
-- La ruta del proyecto se usa para todas las acciones de Python (archivos)
-- El indicador "Python activo" confirma que las acciones están habilitadas
-
-### 3. Chat del Proyecto
-- Selecciona un modelo de la lista de Ollama
-- Escribe tu consulta sobre el código
-- El sistema inyecta automáticamente el contexto del proyecto
-- El LLM puede crear/modificar archivos usando bloques `<action>`
-- Usa `$nombre-archivo` para referenciar archivos en tu consulta
-
-### 4. Gestor de Agentes
-- Administra y configura agentes especializados
-- Revisa los system prompts de cada agente y asigna el modelo de cada uno
-- Usa el **switch** para activar/desactivar un agente: los desactivados quedan visibles pero no se ejecutan en los planes (cambio persistido en SQLite)
-
-### 5. Ejecución de Planes
-- Define un objetivo y genera un plan técnico con IA
-- **Selecciona los agentes** que participarán en el plan y reordénalos (↑/↓) según la funcionalidad del proyecto
-- La orquestación por rol sigue el orden: PM → Backend → Frontend → DBA → QA → DevOps
-- Cada agente puede crear archivos reales en el proyecto mediante Python
-- Auditoría final sintetiza la bitácora y actualiza el grafo de memoria
-
-### 6. Gestor Ollama
-- Inicia/detiene el servicio Ollama (Docker o Local) desde la interfaz
-- Descarga nuevos modelos desde Ollama Hub y elimina los que no necesites
-- Visualiza el tamaño de cada modelo y cuáles están cargados en memoria (RAM/VRAM)
-
-### 7. Configuración
-- **Apariencia**: Cambia entre tema Oscuro, Claro o Sistema
-- **Endpoints**: Configura la URL de Ollama y el modo (Docker/Local)
-- **Docker/Ollama (Python)**: Inicia, detiene o reinicia Ollama
-- **Información**: Visualiza estado de Docker, contenedores, puertos y versión
-
-### 8. Historial
-- Revisa todas las consultas realizadas
-- Visualiza agentes ejecutados
-- Explora la evolución del grafo de conocimiento
-
-## 🔧 Configuración Avanzada
-
-### Cambiar el puerto
-
-Edita `vite.config.ts` para el frontend:
-```typescript
-server: {
-  port: 8502, // Cambiar este valor
-}
-```
-
-Edita `server/index.ts` para el backend:
-```typescript
-const PORT = 8502; // Cambiar este valor
-```
-
-### Conectar a Ollama remoto
-
-Edita el archivo `.env`:
-```env
-VITE_OLLAMA_URL=http://tu-servidor-ollama:11434
-```
-
-### Validación antes de guardar configuración
-
-La aplicación valida si Ollama está corriendo antes de permitir guardar cambios en la configuración. Si está en ejecución, muestra una advertencia indicando que debe detener el servicio primero.
+- **Frontend**: React 18 · TypeScript · Vite 5 · Tailwind CSS 3 · Zustand · Lucide
+- **Backend**: Express 4 · SQLite (sql.js) · zod · tsx
+- **Orquestación**: Node.js `child_process` · Python (acciones de sistema y Docker) · OpenCode CLI
 
 ## 🐛 Troubleshooting
 
-### Error: "Python is not installed"
-1. Verifica que Python esté instalado: `python --version`
-2. Asegúrate de que Python esté en el PATH del sistema
-3. Se requiere Python 3.8 o superior
+### "Ollama no está disponible"
+```bash
+ollama --version
+ollama serve
+```
+Verifica que la URL en **Configuración → Endpoints** sea `http://localhost:11434`.
 
-### Error: "Docker is not installed or not in PATH"
-1. Verifica que Docker esté instalado: `docker --version`
-2. Asegúrate de que Docker Desktop esté corriendo
-3. Verifica que Docker esté en el PATH del sistema
+### "OpenCode no está en ejecución"
+```bash
+opencode --version   # si falla: npm install -g opencode-ai
+```
+Inicia el servidor desde la pestaña OpenCode → Estado.
 
-### Error: "Ollama no está disponible"
-1. Verifica que Ollama esté instalado: `ollama --version`
-2. Inicia el servidor: `ollama serve` o usa el botón "Iniciar Ollama" en la app
-3. Verifica que esté en http://localhost:11434
-4. Si usas Docker: `docker start ollama`
+### "Puerto 8502 en uso"
+Cambia `const PORT = 8502` en `server/index.ts` y el proxy en `vite.config.ts`.
 
-### Error: "Puerto 8502 en uso"
-Cambia el puerto en `vite.config.ts` y `server/index.ts`
+### "Acceso denegado: path fuera del directorio del proyecto"
+Las acciones de archivos (Python) solo operan dentro del directorio del **proyecto activo**. Verifica la ruta seleccionada en la barra lateral.
 
-### Error: "Access denied: path is outside project directory"
-Esta es una medida de seguridad. Las acciones de Python solo pueden operar dentro del directorio del proyecto activo. Verifica que la ruta del proyecto sea correcta.
+### Error de permisos al guardar `opencode.json`
+Asegúrate de que la ruta de configuración sea escribible (`~/.config/opencode/opencode.json` en macOS/Linux, `%USERPROFILE%\.config\opencode\` en Windows) o usa el scope **Global** desde la app.
+
+## ⚠️ Disclaimer para Windows
+
+- Algunos comandos de OpenCode y el control de Docker requieren una **terminal con permisos** (PowerShell como administrador) y que las herramientas estén en el **PATH del sistema**.
+- Si `opencode` no se detecta en el backend, reinicia la aplicación tras instalarlo (el PATH se lee al arrancar).
+- En Windows, los cambios en `opencode.json` de scope **Global** se escriben en `%USERPROFILE%\.config\opencode\`; el scope **Proyecto** se escribe en la raíz del proyecto activo.
+- Docker en Windows requiere **Docker Desktop** en ejecución (no solo el CLI).
 
 ## 🤝 Contribuir
 
 1. Fork el proyecto
 2. Crea una rama: `git checkout -b feature/nueva-funcionalidad`
-3. Commit: `git commit -m 'Add: nueva funcionalidad'`
+3. Commit: `git commit -m 'feat: nueva funcionalidad'`
 4. Push: `git push origin feature/nueva-funcionalidad`
 5. Abre un Pull Request
 
 ## 📝 Licencia
 
-Este proyecto está bajo la licencia MIT. Ver archivo `LICENSE` para más detalles.
-
-## 👨‍💻 Autor
-
-Desarrollado con ❤️ para la comunidad de LLMs locales
+MIT. Ver archivo `LICENSE`.
 
 ## 🙏 Agradecimientos
 
-- [Ollama](https://ollama.ai/) - Por hacer accesible los LLMs locales
-- [sql.js](https://github.com/sql-js/sql.js) - SQLite en el navegador/Node
-- [Lucide](https://lucide.dev/) - Iconos hermosos y consistentes
-- [Tailwind CSS](https://tailwindcss.com/) - Framework CSS utility-first
-- [Python](https://python.org/) - Por ser el puente entre el LLM y el sistema
-
----
-
-**⭐ Si te gusta este proyecto, dale una estrella en GitHub**
+- [Ollama](https://ollama.com/) · [OpenCode](https://opencode.ai/) · [sql.js](https://github.com/sql-js/sql.js) · [Docker](https://www.docker.com/) · [Lucide](https://lucide.dev/) · [Tailwind CSS](https://tailwindcss.com/)

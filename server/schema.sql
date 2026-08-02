@@ -320,6 +320,22 @@ CREATE TABLE IF NOT EXISTS agent_versions (
 
 CREATE INDEX IF NOT EXISTS idx_agent_versions_agent ON agent_versions(agent_id, version DESC);
 
+-- Skills instalables (formato SKILL.md compatible con OpenCode/Claude)
+CREATE TABLE IF NOT EXISTS skills (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT DEFAULT '',
+    content TEXT NOT NULL,
+    references_json TEXT DEFAULT '[]',
+    scope TEXT DEFAULT 'project',
+    is_active INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_skills_name ON skills(name);
+CREATE INDEX IF NOT EXISTS idx_skills_scope ON skills(scope);
+
 -- Valores por defecto para arranque del sistema
 INSERT INTO app_settings (key, value)
 VALUES

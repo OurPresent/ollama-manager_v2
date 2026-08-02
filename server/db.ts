@@ -81,22 +81,39 @@ const runMigrations = async (database: Database): Promise<void> => {
   ensureColumn(database, 'agents', 'model', "TEXT DEFAULT ''");
 };
 
+const applySchema = async (database: Database): Promise<void> => {
+  if (!fs.existsSync(SCHEMA_PATH)) {
+    throw new Error(`Schema file not found at: ${SCHEMA_PATH}`);
+  }
+  const schema = fs.readFileSync(SCHEMA_PATH, 'utf-8');
+  database.exec(schema);
+  await runMigrations(database);
+};
+
 export const initDb = async () => {
   try {
     const database = await getDb();
-    
-    // Validate schema file exists
-    if (!fs.existsSync(SCHEMA_PATH)) {
-      throw new Error(`Schema file not found at: ${SCHEMA_PATH}`);
-    }
-    
-    const schema = fs.readFileSync(SCHEMA_PATH, 'utf-8');
-    database.exec(schema);
-    await runMigrations(database);
+    await applySchema(database);
     saveDb();
     console.log('⚡ SQLite Base de Datos inicializada correctamente.');
   } catch (error) {
     console.error('Error initializing database:', error);
     throw error;
   }
+};
+
+/** Devuelve el contenido binario actual de la BD (para respaldos). */
+export const exportDatabase = (): Buffer => {
+  if (!db) throw new Error('Base de datos no inicializada');
+  return Buffer.from(db.export());
+};
+
+/** Reemplaza la BD en memoria por una copia restaurada y re-aplica el esquema. */
+export const replaceDatabase = async (buffer: Buffer): Promise<void> => {
+  const SQL = await initSqlJs();
+  const restored = new SQL.Database(new Uint8Array(buffer));
+  await applySchema(restored);
+  db = restored;
+  saveDb();
+  console.log('⚡ Base de datos restaurada correctamente.');
 };

@@ -12,7 +12,8 @@ import {
   Circle,
   Play,
   Settings,
-  Terminal
+  Terminal,
+  Plug
 } from 'lucide-react';
 import { activateProject, fetchActiveProject, fetchProjects, registerProject } from '../services/systemApi';
 import { useChatStore } from '../store/chatStore';
@@ -57,6 +58,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'opencode', label: 'OpenCode', icon: <Terminal className="w-4 h-4" /> },
     { id: 'playground', label: 'Playground', icon: <Sliders className="w-4 h-4" /> },
     { id: 'history', label: 'Historial & Graph', icon: <History className="w-4 h-4" /> },
+    { id: 'integraciones', label: 'Integraciones', icon: <Plug className="w-4 h-4" /> },
     { id: 'settings', label: 'Configuración', icon: <Settings className="w-4 h-4" /> },
   ];
 
