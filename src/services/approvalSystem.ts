@@ -19,7 +19,48 @@ export interface ApprovalResponse {
   feedback?: string;
 }
 
+export type ApprovalRequestInput = Omit<ApprovalRequest, 'id' | 'timestamp'> & {
+  projectId?: string;
+};
+
 type ApprovalListener = (pending: ApprovalRequest[]) => void;
+
+const API_BASE = '/api';
+
+const persistRequest = async (request: ApprovalRequestInput): Promise<void> => {
+  try {
+    await fetch(`${API_BASE}/approvals`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectId: request.projectId ?? null,
+        scopeType: request.type,
+        title: request.title,
+        description: request.description,
+        details: request.details,
+      }),
+    });
+  } catch (error) {
+    console.warn('No se pudo persistir la solicitud de aprobación:', error);
+  }
+};
+
+const persistDecision = async (
+  requestId: string,
+  decision: 'approved' | 'rejected' | 'alternative',
+  selectedAlternative?: number,
+  feedback?: string
+): Promise<void> => {
+  try {
+    await fetch(`${API_BASE}/approvals/${encodeURIComponent(requestId)}/decide`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decision, selectedAlternative, feedback }),
+    });
+  } catch (error) {
+    console.warn('No se pudo persistir la decisión de aprobación:', error);
+  }
+};
 
 class ApprovalSystem {
   private pendingApprovals: Map<string, ApprovalRequest> = new Map();
@@ -39,7 +80,7 @@ class ApprovalSystem {
     this.listeners.forEach((listener) => listener(list));
   }
 
-  async requestApproval(request: Omit<ApprovalRequest, 'id' | 'timestamp'>): Promise<ApprovalResponse> {
+  async requestApproval(request: ApprovalRequestInput): Promise<ApprovalResponse> {
     const id = `approval_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
     const fullRequest: ApprovalRequest = {
       ...request,
@@ -49,6 +90,7 @@ class ApprovalSystem {
 
     this.pendingApprovals.set(id, fullRequest);
     this.notify();
+    persistRequest(request);
 
     return new Promise<ApprovalResponse>((resolve) => {
       this.resolvers.set(id, resolve);
@@ -67,6 +109,7 @@ class ApprovalSystem {
     this.resolvers.delete(requestId);
     this.pendingApprovals.delete(requestId);
     this.notify();
+    persistDecision(requestId, decision, selectedAlternative, feedback);
 
     resolve({ requestId, decision, selectedAlternative, feedback });
   }

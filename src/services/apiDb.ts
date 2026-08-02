@@ -97,6 +97,33 @@ export const fetchFileContent = async (
   return readJson<{ path: string; content: string }>(res);
 };
 
+export const resolveFileReferences = async (
+  projectId: string,
+  refs: string[]
+): Promise<{ resolved: { path: string; content: string }[]; missing: string[] }> => {
+  const res = await fetch(
+    `${BACKEND_URL}/projects/${encodeURIComponent(projectId)}/resolve-references`,
+    {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ refs }),
+    }
+  );
+  return readJson<{ resolved: { path: string; content: string }[]; missing: string[] }>(res);
+};
+
+export const fetchProjectContext = async (
+  projectId: string
+): Promise<{ blockType: string; title: string; content: string }[]> => {
+  const res = await fetch(`${BACKEND_URL}/projects/${encodeURIComponent(projectId)}/context`);
+  const data = await readJson<{ blocks: Array<Record<string, unknown>> }>(res);
+  return (data.blocks ?? []).map((b) => ({
+    blockType: String(b.block_type ?? ''),
+    title: String(b.title ?? ''),
+    content: String(b.content ?? ''),
+  }));
+};
+
 export const indexProjectFiles = async (projectId: string): Promise<number> => {
   const res = await fetch(`${BACKEND_URL}/projects/${encodeURIComponent(projectId)}/index`, {
     method: 'POST',
@@ -151,6 +178,67 @@ export const fetchSystemLogs = async (limit = 50): Promise<SystemLogDto[]> => {
     details: (l.details_json ? JSON.parse(String(l.details_json)) : {}) as Record<string, unknown>,
     createdAt: String(l.created_at ?? ''),
   }));
+};
+
+export const createPlan = async (data: {
+  projectId: string;
+  title: string;
+  goal: string;
+  content: string;
+}): Promise<string> => {
+  const res = await fetch(`${BACKEND_URL}/plans`, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify(data),
+  });
+  const result = await readJson<{ status: string; id: string }>(res);
+  return result.id;
+};
+
+export const startPlanRun = async (planId: string): Promise<string> => {
+  const res = await fetch(`${BACKEND_URL}/plans/${encodeURIComponent(planId)}/runs`, {
+    method: 'POST',
+  });
+  const result = await readJson<{ status: string; runId: string }>(res);
+  return result.runId;
+};
+
+export const finishPlanRun = async (
+  runId: string,
+  status: 'completed' | 'error' | 'cancelled',
+  summary = ''
+): Promise<void> => {
+  await fetch(`${BACKEND_URL}/plans/runs/${encodeURIComponent(runId)}/finish`, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ status, summary }),
+  });
+};
+
+export const startAgentRun = async (
+  runId: string,
+  agentId: string,
+  modelName: string
+): Promise<string> => {
+  const res = await fetch(`${BACKEND_URL}/plans/runs/${encodeURIComponent(runId)}/agents`, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ agentId, modelName }),
+  });
+  const result = await readJson<{ status: string; agentRunId: string }>(res);
+  return result.agentRunId;
+};
+
+export const finishAgentRun = async (
+  agentRunId: string,
+  status: 'completed' | 'error',
+  output = ''
+): Promise<void> => {
+  await fetch(`${BACKEND_URL}/plans/agent-runs/${encodeURIComponent(agentRunId)}/finish`, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ status, output }),
+  });
 };
 
 export const fetchProjectQueries = async (projectName: string): Promise<ProjectQueryDto[]> => {

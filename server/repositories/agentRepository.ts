@@ -1,4 +1,4 @@
-import { queryAll, queryOne, execute } from './db';
+import { queryAll, queryOne, execute, type DbRow } from './db';
 import { createId } from '../core/utils';
 import type { AgentRow } from '../core/types';
 
@@ -94,6 +94,30 @@ export const BUILTIN_AGENT_IDS: Record<string, string> = {
   'DevOps Engineer': 'agent_devops_engineer',
 };
 
+const getNextAgentVersion = async (agentId: string): Promise<number> => {
+  const row = await queryOne(
+    'SELECT COALESCE(MAX(version), 0) + 1 AS next FROM agent_versions WHERE agent_id = ?',
+    [agentId]
+  );
+  return Number((row as unknown as { next: number } | null)?.next ?? 1);
+};
+
+export const snapshotAgentVersion = async (
+  agentId: string,
+  data: { name: string; role: string; description: string; systemPrompt: string }
+): Promise<void> => {
+  const next = await getNextAgentVersion(agentId);
+  await execute(
+    `INSERT INTO agent_versions (id, agent_id, version, name, role, description, system_prompt)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [createId('av'), agentId, next, data.name, data.role, data.description, data.systemPrompt]
+  );
+};
+
+export const listAgentVersions = async (agentId: string): Promise<DbRow[]> => {
+  return queryAll('SELECT * FROM agent_versions WHERE agent_id = ? ORDER BY version DESC LIMIT 20', [agentId]);
+};
+
 export const seedBuiltinAgents = async (): Promise<void> => {
   for (const agent of builtinAgents) {
     const id = BUILTIN_AGENT_IDS[agent.name] ?? createId('agent');
@@ -129,6 +153,7 @@ export const insertAgent = async (agent: NewAgent): Promise<string> => {
      VALUES (?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)`,
     [id, agent.name, agent.role, agent.description, agent.systemPrompt, agent.isBuiltin ? 1 : 0]
   );
+  await snapshotAgentVersion(id, agent);
   return id;
 };
 
@@ -136,6 +161,15 @@ export const updateAgent = async (
   id: string,
   data: { name: string; role: string; description: string; systemPrompt: string }
 ): Promise<void> => {
+  const existing = await getAgentById(id);
+  if (existing && existing.system_prompt !== data.systemPrompt) {
+    await snapshotAgentVersion(id, {
+      name: existing.name,
+      role: existing.role,
+      description: existing.description,
+      systemPrompt: existing.system_prompt,
+    });
+  }
   await execute(
     `UPDATE agents
      SET name = ?, role = ?, description = ?, system_prompt = ?, updated_at = CURRENT_TIMESTAMP

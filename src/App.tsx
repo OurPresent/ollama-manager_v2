@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ActiveView, OllamaModel, ProjectInfo } from './types';
 import { checkOllamaStatus, fetchInstalledModels, setCachedOllamaBaseUrl } from './services/ollama';
 import { fetchActiveProject, getAppSettings, Theme } from './services/systemApi';
+import { fetchProjectContext } from './services/apiDb';
 import { Sidebar } from './components/Sidebar';
 import { HomeView } from './views/HomeView';
 import { ChatView } from './views/ChatView';
@@ -59,6 +60,18 @@ export const App: React.FC = () => {
         setCachedOllamaBaseUrl(settings.ollamaUrl);
         if (activeProject) {
           setProjectInfo(activeProject);
+          // Pre-cargar contexto estructural generado por el indexador
+          try {
+            const blocks = await fetchProjectContext(activeProject.id);
+            const summary = blocks.find((b) => b.blockType === 'summary');
+            const tree = blocks.find((b) => b.blockType === 'tree');
+            const parts = [summary?.content, tree?.content].filter(Boolean).join('\n\n');
+            if (parts) {
+              setProjectContext(parts);
+            }
+          } catch (err) {
+            console.warn('No se pudo precargar el contexto del proyecto:', err);
+          }
         }
       } catch (error) {
         applyTheme('dark');

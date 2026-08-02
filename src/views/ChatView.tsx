@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { ChatMessage, ProjectInfo } from '../types';
 import { streamChatCompletion } from '../services/ollama';
 import { parseAndSaveMemoryJson } from '../services/memoryDb';
-import { fetchGraphNodes, fetchTaskLogs, saveProjectQuery, fetchProjectFiles, fetchFileContent, indexProjectFiles } from '../services/apiDb';
+import { fetchGraphNodes, fetchTaskLogs, saveProjectQuery, fetchProjectFiles, resolveFileReferences, indexProjectFiles } from '../services/apiDb';
 import { executeAllActions, formatActionResult } from '../services/fileActions';
 import { Send, Bot, User, Code, Loader2, Plus, AlertTriangle, CheckCircle, XCircle, FileCode, Trash2, RefreshCw } from 'lucide-react';
 import { approvalSystem, ApprovalRequest } from '../services/approvalSystem';
@@ -126,16 +126,14 @@ export const ChatView: React.FC<Props> = ({ selectedModel, projectInfo, projectC
 
     const sessionMessages = messagesBySession[sessionId] ?? [];
 
-    // Process file references (using $ syntax) — carga contenido real desde el índice del backend
+    // Process file references (using $ syntax) — resuelve contenido real desde el backend
     const { references } = fileReferenceSystem.parseFileReferences(input);
     if (projectInfo.id && references.length > 0) {
-      for (const ref of references) {
-        try {
-          const file = await fetchFileContent(projectInfo.id, ref);
-          fileReferenceSystem.setFileContent(file.path, file.content);
-        } catch (err) {
-          console.warn(`No se pudo cargar "${ref}":`, err);
-        }
+      try {
+        const { resolved } = await resolveFileReferences(projectInfo.id, references);
+        resolved.forEach((file) => fileReferenceSystem.setFileContent(file.path, file.content));
+      } catch (err) {
+        console.warn('No se pudieron resolver referencias de archivos:', err);
       }
     }
     const { enrichedMessage, fileContents } = await fileReferenceSystem.enrichMessageWithFiles(input, projectInfo.name);

@@ -14,6 +14,7 @@ import {
 } from '../repositories/projectRepository';
 import { searchProjectFiles, listProjectFiles } from '../repositories/fileIndexRepository';
 import { indexProject } from '../services/fileIndexService';
+import { listContextBlocks } from '../repositories/contextRepository';
 import { writeFileAccessLog } from '../repositories/fileAccessRepository';
 import { writeAuditEvent } from '../core/audit';
 import { handleRouteError } from './errorHandler';
@@ -92,6 +93,74 @@ router.post('/register', async (req, res) => {
     });
   } catch (error) {
     console.error('Error registering project:', error);
+    handleRouteError(error, res);
+  }
+});
+
+router.post('/:id/resolve-references', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const project = await getProjectById(id);
+    if (!project) {
+      res.status(404).json({ error: 'Project not found' });
+      return;
+    }
+
+    const parsed = z
+      .object({ refs: z.array(z.string()).max(50).default([]) })
+      .parse(req.body ?? {});
+    const root = path.resolve(project.root_path);
+
+    const resolved: { path: string; content: string }[] = [];
+    const missing: string[] = [];
+
+    for (const ref of parsed.refs) {
+      const safeRel = ref.replace(/\\/g, '/');
+      const resolvedPath = path.resolve(root, safeRel);
+      if (resolvedPath !== root && !resolvedPath.startsWith(root + path.sep)) {
+        missing.push(ref);
+        continue;
+      }
+      if (!fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isFile()) {
+        missing.push(ref);
+        continue;
+      }
+
+      resolved.push({ path: safeRel, content: fs.readFileSync(resolvedPath, 'utf8') });
+    }
+
+    if (resolved.length > 0) {
+      await writeFileAccessLog({
+        projectId: id,
+        relativePath: resolved.map((r) => r.path).join(','),
+        source: 'chat',
+        details: { endpoint: 'resolve-references', count: resolved.length },
+      });
+    }
+
+    res.json({ resolved, missing });
+  } catch (error) {
+    console.error('Error resolving references:', error);
+    handleRouteError(error, res);
+  }
+});
+
+router.get('/:id/context', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const project = await getProjectById(id);
+    if (!project) {
+      res.status(404).json({ error: 'Project not found' });
+      return;
+    }
+
+    const blocks = await listContextBlocks(id);
+    if (blocks.length === 0) {
+      await indexProject(project);
+    }
+    res.json({ blocks: blocks.length > 0 ? blocks : await listContextBlocks(id) });
+  } catch (error) {
+    console.error('Error fetching project context:', error);
     handleRouteError(error, res);
   }
 });

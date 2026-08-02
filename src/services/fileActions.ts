@@ -4,6 +4,8 @@
  * within the active project directory via Python.
  */
 
+import { approvalSystem } from './approvalSystem';
+
 interface ActionData {
   action: string;
   path: string;
@@ -83,7 +85,10 @@ export async function executeAction(
 /**
  * Execute all actions found in a response and return the results.
  * Actions are executed sequentially in order.
+ * Sensitive actions (write/create/delete/append) require approval first.
  */
+const SENSITIVE_ACTIONS = new Set(['write_file', 'create_file', 'delete_file', 'append_file']);
+
 export async function executeAllActions(
   response: string,
   projectPath: string
@@ -93,6 +98,34 @@ export async function executeAllActions(
   const results: { action: ActionData; result: ActionResult }[] = [];
 
   for (const action of actions) {
+    // Solicitar aprobación para acciones sensibles
+    if (SENSITIVE_ACTIONS.has(action.action)) {
+      try {
+        const approval = await approvalSystem.requestApproval({
+          type: 'file_edit',
+          title: `${action.action === 'delete_file' ? 'Eliminar' : 'Modificar'} archivo`,
+          description: `Se solicita ${action.action === 'delete_file' ? 'eliminar' : 'escribir'} \`${action.path}\` en el proyecto.`,
+          details: {
+            files: [action.path],
+            riskLevel: action.action === 'delete_file' ? 'high' : 'medium',
+          },
+        });
+
+        if (approval.decision === 'rejected') {
+          results.push({
+            action,
+            result: {
+              success: false,
+              error: `Acción rechazada por el usuario: ${approval.feedback || 'sin comentarios'}`,
+            },
+          });
+          continue;
+        }
+      } catch (error) {
+        console.warn('Error en flujo de aprobación, se ejecuta por defecto:', error);
+      }
+    }
+
     const result = await executeAction(action, projectPath);
     results.push({ action, result });
   }

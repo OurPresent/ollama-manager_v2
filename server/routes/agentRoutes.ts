@@ -6,6 +6,7 @@ import {
   insertAgent,
   updateAgent,
   deactivateAgent,
+  listAgentVersions,
 } from '../repositories/agentRepository';
 import type { AgentRow } from '../core/types';
 import { writeAuditEvent } from '../core/audit';
@@ -86,6 +87,35 @@ router.delete('/:id', async (req, res) => {
     res.json({ status: 'ok', id });
   } catch (error) {
     console.error('Error deleting agent:', error);
+    handleRouteError(error, res);
+  }
+});
+
+router.get('/:id/versions', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existing = await getAgentById(id);
+    if (!existing) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+    const versions = await listAgentVersions(id);
+    res.json(
+      versions.map((v: unknown) => {
+        const row = v as { id: string; version: number; name: string; role: string; description: string; system_prompt: string; created_at: string };
+        return {
+          id: row.id,
+          version: row.version,
+          name: row.name,
+          role: row.role,
+          description: row.description,
+          systemPrompt: row.system_prompt,
+          createdAt: row.created_at,
+        };
+      })
+    );
+  } catch (error) {
+    console.error('Error fetching agent versions:', error);
     handleRouteError(error, res);
   }
 });

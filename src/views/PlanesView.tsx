@@ -2,14 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { streamChatCompletion } from '../services/ollama';
 import { parseAndSaveMemoryJson } from '../services/memoryDb';
 import { executeAllActions, formatActionResult } from '../services/fileActions';
-import { saveTaskLogToSqlite } from '../services/apiDb';
+import { saveTaskLogToSqlite, createPlan, startPlanRun, finishPlanRun, startAgentRun, finishAgentRun } from '../services/apiDb';
 import { fetchAgents } from '../services/systemApi';
 import type { PersistedAgent } from '../types';
 import { Play, CheckCircle2, Loader2, Sparkles, FileCode } from 'lucide-react';
 
 interface Props {
   selectedModel: string;
-  projectInfo: { name: string; path: string };
+  projectInfo: { id?: string; name: string; path: string };
   projectContext: string;
 }
 
@@ -66,6 +66,7 @@ Ejemplo de uso:
         }
       );
 
+      let finalPlan = accumulated;
       // Ejecutar acciones si las hay
       if (projectPath) {
         setExecutingActions(true);
@@ -75,11 +76,26 @@ Ejemplo de uso:
           results.forEach((r) => {
             actionResultsText += formatActionResult(r.action, r.result) + '\n\n';
           });
-          setPlan(cleanResponse + actionResultsText);
+          finalPlan = cleanResponse + actionResultsText;
         } else {
-          setPlan(cleanResponse || accumulated);
+          finalPlan = cleanResponse || accumulated;
         }
+        setPlan(finalPlan);
         setExecutingActions(false);
+      }
+
+      // Persistir el plan generado en SQLite
+      if (projectInfo.id) {
+        try {
+          await createPlan({
+            projectId: projectInfo.id,
+            title: goal.slice(0, 80),
+            goal,
+            content: finalPlan,
+          });
+        } catch (err) {
+          console.error('Error persistiendo plan:', err);
+        }
       }
     } catch (e) {
       console.error(e);
@@ -100,6 +116,23 @@ Ejemplo de uso:
       return;
     }
 
+    // Persistir el plan y crear la corrida (Pendiente 1)
+    let planId = '';
+    let runId = '';
+    if (projectInfo.id) {
+      try {
+        planId = await createPlan({
+          projectId: projectInfo.id,
+          title: goal.slice(0, 80) || 'Pipeline',
+          goal,
+          content: plan,
+        });
+        runId = await startPlanRun(planId);
+      } catch (err) {
+        console.error('Error creando plan/run:', err);
+      }
+    }
+
     let prevOutputs: string[] = [];
 
     for (const role of agents) {
@@ -107,6 +140,16 @@ Ejemplo de uso:
       let currentOutput = '';
 
       setAgentOutputs((prev) => [...prev, { role: role.name, output: 'Ejecutando...' }]);
+
+      // Crear agent_run
+      let agentRunId = '';
+      if (runId && role.id) {
+        try {
+          agentRunId = await startAgentRun(runId, role.id, selectedModel);
+        } catch (err) {
+          console.error('Error creando agent_run:', err);
+        }
+      }
 
       try {
         await streamChatCompletion(
@@ -154,11 +197,17 @@ Ejemplo de uso:
             createdAt: new Date().toISOString(),
           });
           await parseAndSaveMemoryJson(projectInfo.name, currentOutput);
+          if (agentRunId) {
+            await finishAgentRun(agentRunId, 'completed', currentOutput);
+          }
         } catch (err) {
           console.error('Error persistiendo salida del agente:', err);
         }
       } catch (err) {
         console.error(err);
+        if (agentRunId) {
+          finishAgentRun(agentRunId, 'error', currentOutput).catch(() => undefined);
+        }
       }
     }
 
@@ -185,6 +234,16 @@ Ejemplo de uso:
 
     // Guardar en la BD local de TS
     parseAndSaveMemoryJson(projectInfo.name, auditOutput);
+
+    // Cerrar la corrida del plan
+    if (runId) {
+      try {
+        await finishPlanRun(runId, 'completed', auditOutput.slice(0, 2000));
+      } catch (err) {
+        console.error('Error cerrando plan_run:', err);
+      }
+    }
+
     setIsRunningPipeline(false);
   };
 

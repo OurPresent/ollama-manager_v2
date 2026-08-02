@@ -14,6 +14,8 @@ import { dockerRouter } from './routes/dockerRoutes';
 import { ollamaRouter } from './routes/ollamaRoutes';
 import { chatRouter } from './routes/chatRoutes';
 import { auditRouter } from './routes/auditRoutes';
+import { planRouter } from './routes/planRoutes';
+import { approvalRouter } from './routes/approvalRoutes';
 
 const app = express();
 app.use(cors());
@@ -30,6 +32,8 @@ app.use('/api/docker', dockerRouter);
 app.use('/api/ollama', ollamaRouter);
 app.use('/api/chat', chatRouter);
 app.use('/api/audit', auditRouter);
+app.use('/api/plans', planRouter);
+app.use('/api/approvals', approvalRouter);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', service: 'ollama-manager-v2' });

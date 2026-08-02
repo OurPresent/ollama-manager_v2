@@ -181,6 +181,18 @@ CREATE TABLE IF NOT EXISTS approval_requests (
 
 CREATE INDEX IF NOT EXISTS idx_approval_requests_status ON approval_requests(status, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS approval_decisions (
+    id TEXT PRIMARY KEY,
+    request_id TEXT NOT NULL,
+    decision TEXT NOT NULL, -- approved | rejected | alternative
+    selected_alternative INTEGER,
+    feedback TEXT DEFAULT '',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (request_id) REFERENCES approval_requests(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_approval_decisions_request ON approval_decisions(request_id);
+
 CREATE TABLE IF NOT EXISTS system_logs (
     id TEXT PRIMARY KEY,
     level TEXT NOT NULL, -- info | warn | error
@@ -233,6 +245,49 @@ CREATE TABLE IF NOT EXISTS file_access_log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_file_access_log_project ON file_access_log(project_id, created_at DESC);
+
+-- Contexto estructural del proyecto (generado al indexar)
+CREATE TABLE IF NOT EXISTS project_context_blocks (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    block_type TEXT NOT NULL, -- tree | summary | stats
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    source TEXT DEFAULT 'indexer',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_context_blocks_project ON project_context_blocks(project_id, block_type);
+
+CREATE TABLE IF NOT EXISTS project_snapshots (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    file_count INTEGER NOT NULL DEFAULT 0,
+    total_size_bytes INTEGER NOT NULL DEFAULT 0,
+    snapshot_json TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_snapshots_project ON project_snapshots(project_id, created_at DESC);
+
+-- Versionado de prompts de agentes
+CREATE TABLE IF NOT EXISTS agent_versions (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    name TEXT NOT NULL,
+    role TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    system_prompt TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+    UNIQUE(agent_id, version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_versions_agent ON agent_versions(agent_id, version DESC);
 
 -- Valores por defecto para arranque del sistema
 INSERT INTO app_settings (key, value)

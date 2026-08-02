@@ -4,6 +4,7 @@ import { createHash } from 'crypto';
 import type { ProjectRow } from '../core/types';
 import { upsertIndexedFile, clearProjectFiles, countProjectFiles } from '../repositories/fileIndexRepository';
 import { writeAuditEvent } from '../core/audit';
+import { clearContextBlocks, upsertContextBlock, insertSnapshot } from '../repositories/contextRepository';
 
 const DEFAULT_IGNORED = new Set([
   'node_modules',
@@ -91,17 +92,28 @@ export const indexProject = async (project: ProjectRow): Promise<number> => {
   const files = walk(root);
   await clearProjectFiles(project.id);
 
+  let totalSizeBytes = 0;
+  const filesByDir = new Map<string, number>();
+  const filesByType = new Map<string, number>();
+
   for (const filePath of files) {
     try {
       const stat = fs.statSync(filePath);
       if (stat.size > MAX_FILE_SIZE_BYTES) continue;
+      totalSizeBytes += stat.size;
 
       const relativePath = path.relative(root, filePath).split(path.sep).join('/');
+      const dirName = path.dirname(relativePath);
+      filesByDir.set(dirName, (filesByDir.get(dirName) ?? 0) + 1);
+
+      const fileType = path.extname(filePath).replace('.', '').toLowerCase() || 'txt';
+      filesByType.set(fileType, (filesByType.get(fileType) ?? 0) + 1);
+
       const hash = await computeFileHash(filePath);
       await upsertIndexedFile({
         projectId: project.id,
         relativePath,
-        fileType: path.extname(filePath).replace('.', '').toLowerCase(),
+        fileType,
         sizeBytes: stat.size,
         modifiedAt: new Date(stat.mtimeMs).toISOString(),
         hash,
@@ -112,9 +124,82 @@ export const indexProject = async (project: ProjectRow): Promise<number> => {
   }
 
   const total = await countProjectFiles(project.id);
+  await generateProjectContext(project, {
+    fileCount: total,
+    totalSizeBytes,
+    filesByDir,
+    filesByType,
+  });
   await writeAuditEvent('files.indexed', 'project', project.id, project.id, {
     files: total,
     rootPath: root,
   });
   return total;
+};
+
+const generateProjectContext = async (
+  project: ProjectRow,
+  stats: {
+    fileCount: number;
+    totalSizeBytes: number;
+    filesByDir: Map<string, number>;
+    filesByType: Map<string, number>;
+  }
+): Promise<void> => {
+  await clearContextBlocks(project.id);
+
+  const sortedDirs = Array.from(stats.filesByDir.entries()).sort((a, b) => b[1] - a[1]);
+  const treeLines = sortedDirs.map(([dir, count]) => `${dir}: ${count} archivo(s)`);
+  const tree = treeLines.join('\n') || '(sin archivos)';
+
+  const sortedTypes = Array.from(stats.filesByType.entries()).sort((a, b) => b[1] - a[1]);
+  const byType = sortedTypes.map(([type, count]) => `${type || 'sin-extension'}: ${count}`).join(', ');
+
+  const summary = [
+    `Proyecto: ${project.name}`,
+    `Ruta: ${project.root_path}`,
+    `Archivos indexados: ${stats.fileCount}`,
+    `Tamaño total: ${(stats.totalSizeBytes / 1024 / 1024).toFixed(2)} MB`,
+    ``,
+    `Distribución por tipo: ${byType || 'n/a'}`,
+  ].join('\n');
+
+  await upsertContextBlock({
+    projectId: project.id,
+    blockType: 'tree',
+    title: 'Estructura de directorios (archivos indexados)',
+    content: tree,
+  });
+  await upsertContextBlock({
+    projectId: project.id,
+    blockType: 'summary',
+    title: 'Resumen estructural del proyecto',
+    content: summary,
+  });
+  await upsertContextBlock({
+    projectId: project.id,
+    blockType: 'stats',
+    title: 'Estadísticas',
+    content: JSON.stringify(
+      {
+        fileCount: stats.fileCount,
+        totalSizeBytes: stats.totalSizeBytes,
+        filesByType: Object.fromEntries(stats.filesByType),
+        filesByDir: Object.fromEntries(stats.filesByDir),
+      },
+      null,
+      2
+    ),
+  });
+
+  await insertSnapshot({
+    projectId: project.id,
+    fileCount: stats.fileCount,
+    totalSizeBytes: stats.totalSizeBytes,
+    snapshot: {
+      filesByType: Object.fromEntries(stats.filesByType),
+      filesByDir: Object.fromEntries(stats.filesByDir),
+      indexedAt: new Date().toISOString(),
+    },
+  });
 };
