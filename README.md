@@ -9,11 +9,13 @@ LLMX v2 es una aplicación web completa para gestionar modelos de lenguaje local
 - **🤖 Chat con Memoria Contextual**: Consulta tu código con IA que inyecta automáticamente el contexto del proyecto (bitácoras, entidades, componentes)
 - **🐍 Acciones de Sistema con Python**: El LLM puede crear, leer, escribir, eliminar y listar archivos dentro del proyecto activo mediante bloques `<action>`
 - **🐳 Control de Docker con Python**: Inicia, detiene, reinicia y monitorea Ollama en Docker o Local desde la interfaz
-- **🔗 Pipeline de Agentes**: Ejecuta flujos de trabajo automáticos con agentes especializados (PM, Backend, Frontend, QA, DevOps) que pueden crear archivos reales
-- **📦 Gestor Ollama**: Descarga, elimina y gestiona modelos LLM locales directamente desde la interfaz
+- **📦 Sección Ollama unificada**: Inicia/detiene el servicio Ollama (Docker o Local), lista, descarga y elimina modelos, y muestra cuáles están cargados en memoria
+- **🔗 Pipeline de Agentes**: Ejecuta flujos de trabajo automáticos con agentes especializados (PM, Backend, Frontend, DBA, QA, DevOps) que pueden crear archivos reales
+- **🎯 Selección y orquestación de agentes**: Activa/desactiva agentes con un switch (persistido en SQLite) y elige qué agentes y en qué orden participan en cada plan, organizados por funcionalidad
+- **📊 Dashboard de consumo real**: En Inicio se muestra la RAM en uso, el modelo que más memoria consume y el uso histórico por modelo (sesiones, mensajes y corridas)
 - **🧪 Playground**: Prueba modelos con parámetros personalizados (temperature, top_p, etc.)
 - **📊 Historial Completo**: Revisa todas las consultas, agentes ejecutados y cambios en el grafo de conocimiento
-- **💾 Memoria Persistente**: Base de datos SQLite local que evoluciona con cada interacción
+- **💾 Memoria Persistente**: Base de datos SQLite local que evoluciona con cada interacción (un solo backend, sin localStorage)
 - **🎨 Tema Claro/Oscuro/Sistema**: Interfaz con tema claro (amarillo + celeste) y tema oscuro (verde + azul), con detección automática del sistema
 
 ## 🏗️ Arquitectura
@@ -140,6 +142,7 @@ Python maneja el control completo de Docker para Ollama:
 | `docker_stop_ollama` | `POST /api/docker/ollama/stop` | Detiene el contenedor Docker de Ollama |
 | `docker_restart_ollama` | `POST /api/docker/ollama/restart` | Reinicia el contenedor Docker de Ollama |
 | `docker_get_info` | `GET /api/docker/info` | Información completa de Docker (versión, contenedores, puertos) |
+| `system_stats` | `GET /api/system/stats` | Estadísticas del sistema: RAM total/uso/libre, % en uso y RAM del proceso Ollama |
 
 **Seguridad:** Todas las operaciones de archivos están limitadas al directorio del proyecto activo. Los intentos de path traversal son bloqueados.
 
@@ -165,11 +168,23 @@ La aplicación utiliza **SQLite** (a través de sql.js) para almacenar:
    - Entidades, Componentes, Servicios, Módulos
    - Relaciones y metadatos
 
-2. **project_queries**: Registro de consultas SQL
-   - Queries originales y optimizadas
-   - Tiempos de ejecución
+2. **projects**: Proyectos registrados y proyecto activo
+   - Rutas, metadatos y estados
+   - Registro de activación de proyecto
 
-3. **task_logs**: Bitácoras episódicas en Markdown
+3. **agents**: Agentes especializados del pipeline
+   - Nombre, rol, system prompt, modelo asignado
+   - `is_active`: controla si el agente se ejecuta en los planes
+
+4. **app_settings / project_settings**: Configuración global y por proyecto
+
+5. **chat_sessions / chat_messages**: Sesiones y mensajes del chat
+   - Registran el modelo usado en cada consulta (fuente del uso histórico)
+
+6. **agent_runs**: Ejecuciones de agentes en los planes
+   - Modelo usado y resultados (fuente del uso histórico)
+
+7. **task_logs**: Bitácoras episódicas en Markdown
    - Tareas del proyecto
    - Tags y metadatos
 
@@ -219,30 +234,34 @@ ollama-manager-v2/
 │   │   ├── ollama.ts        # Cliente de Ollama
 │   │   ├── dockerControl.ts # Control de Docker (Python)
 │   │   ├── fileActions.ts   # Acciones de archivos (Python)
-│   │   ├── memoryDb.ts      # Base de datos local
-│   │   ├── apiDb.ts         # Cliente del backend
+│   │   ├── systemApi.ts     # Cliente del backend (agentes, sistema, stats)
 │   │   ├── approvalSystem.ts # Sistema de aprobaciones
 │   │   └── fileReference.ts # Referencias de archivos ($)
 │   ├── types/               # Tipos TypeScript
-│   │   └── index.ts
+│   │   ├── index.ts
+│   │   └── dto.ts           # DTOs del backend (SystemStats, ModelUsage)
 │   ├── views/               # Vistas principales
-│   │   ├── HomeView.tsx     # Dashboard
+│   │   ├── HomeView.tsx     # Dashboard con consumo de RAM y modelos
 │   │   ├── ChatView.tsx     # Chat con acciones Python
-│   │   ├── AgentsView.tsx   # Gestor de agentes
-│   │   ├── PlanesView.tsx   # Pipeline con acciones Python
-│   │   ├── OllamaView.tsx   # Gestor de modelos
+│   │   ├── AgentsView.tsx   # Gestor de agentes + switch activación
+│   │   ├── PlanesView.tsx   # Pipeline con selección/orquestación de agentes
+│   │   ├── OllamaView.tsx   # Gestor de modelos y servicio
 │   │   ├── PlaygroundView.tsx # Testing de prompts
 │   │   ├── HistoryView.tsx  # Historial y grafo
 │   │   └── SettingsView.tsx # Configuración + Docker info
-│   ├── App.tsx              # Componente principal
+│   ├── App.tsx              # Componente principal (estado central de agentes)
 │   ├── main.tsx             # Entry point
 │   └── index.css            # Estilos globales
 ├── server/
-│   ├── index.ts             # Servidor Express + endpoints Python
-│   ├── actions.py           # Script Python (archivos + Docker)
+│   ├── index.ts             # Servidor Express + montado de rutas
+│   ├── actions.py           # Script Python (archivos + Docker + system_stats)
 │   ├── db.ts                # Conexión SQLite
 │   ├── types.d.ts           # Tipos para sql.js
-│   └── schema.sql           # Esquema de base de datos
+│   ├── schema.sql           # Esquema de base de datos
+│   ├── core/                # Tipos y utilidades del dominio
+│   ├── repositories/        # Acceso a datos (agentes, etc.)
+│   ├── routes/              # Rutas Express (agents, ollama, docker, system, chat)
+│   └── services/            # Servicios (ollama, pythonRunner, systemStats, modelUsage)
 ├── public/
 │   └── vite.svg             # Favicon
 ├── index.html               # HTML con script anti-FOUC
@@ -256,41 +275,47 @@ ollama-manager-v2/
 
 ## 🎯 Guía de Uso
 
-### 1. Configurar Proyecto Activo
+### 1. Inicio (Dashboard)
+- Visualiza métricas en vivo: modelos instalados, agentes activos/total, **RAM en uso** y estado del servidor
+- **Dashboard de consumo real**: RAM total/libre/en uso con barra de colores, RAM del proceso Ollama, el modelo con mayor consumo en memoria y el uso histórico por modelo (sesiones, mensajes, corridas)
+- Accesos rápidos a Chat, Agentes, Planes y Ollama
+
+### 2. Configurar Proyecto Activo
 - En la barra lateral, escribe el nombre del proyecto o selecciona una carpeta
 - La ruta del proyecto se usa para todas las acciones de Python (archivos)
 - El indicador "Python activo" confirma que las acciones están habilitadas
 
-### 2. Chat del Proyecto
+### 3. Chat del Proyecto
 - Selecciona un modelo de la lista de Ollama
 - Escribe tu consulta sobre el código
 - El sistema inyecta automáticamente el contexto del proyecto
 - El LLM puede crear/modificar archivos usando bloques `<action>`
 - Usa `$nombre-archivo` para referenciar archivos en tu consulta
 
-### 3. Gestor de Agentes
+### 4. Gestor de Agentes
 - Administra y configura agentes especializados
-- Revisa los system prompts de cada agente
-- Los agentes se ejecutan con Ollama local
+- Revisa los system prompts de cada agente y asigna el modelo de cada uno
+- Usa el **switch** para activar/desactivar un agente: los desactivados quedan visibles pero no se ejecutan en los planes (cambio persistido en SQLite)
 
-### 4. Ejecución de Planes
+### 5. Ejecución de Planes
 - Define un objetivo y genera un plan técnico con IA
-- Ejecuta el pipeline secuencial de agentes (PM → Backend → Frontend → DBA → QA → DevOps)
+- **Selecciona los agentes** que participarán en el plan y reordénalos (↑/↓) según la funcionalidad del proyecto
+- La orquestación por rol sigue el orden: PM → Backend → Frontend → DBA → QA → DevOps
 - Cada agente puede crear archivos reales en el proyecto mediante Python
 - Auditoría final sintetiza la bitácora y actualiza el grafo de memoria
 
-### 5. Gestor Ollama
-- Descarga nuevos modelos desde Ollama Hub
-- Elimina modelos que no necesites
-- Visualiza el tamaño y fecha de cada modelo
+### 6. Gestor Ollama
+- Inicia/detiene el servicio Ollama (Docker o Local) desde la interfaz
+- Descarga nuevos modelos desde Ollama Hub y elimina los que no necesites
+- Visualiza el tamaño de cada modelo y cuáles están cargados en memoria (RAM/VRAM)
 
-### 6. Configuración
+### 7. Configuración
 - **Apariencia**: Cambia entre tema Oscuro, Claro o Sistema
 - **Endpoints**: Configura la URL de Ollama y el modo (Docker/Local)
 - **Docker/Ollama (Python)**: Inicia, detiene o reinicia Ollama
 - **Información**: Visualiza estado de Docker, contenedores, puertos y versión
 
-### 7. Historial
+### 8. Historial
 - Revisa todas las consultas realizadas
 - Visualiza agentes ejecutados
 - Explora la evolución del grafo de conocimiento
