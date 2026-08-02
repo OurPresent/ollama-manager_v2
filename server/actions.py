@@ -32,8 +32,15 @@ def validate_path(project_path: str, file_path: str) -> str:
     abs_project = os.path.abspath(project_path)
     abs_file = os.path.abspath(os.path.join(project_path, file_path))
 
-    # Security check: ensure the file is within the project directory
-    if not abs_file.startswith(abs_project):
+    # Security check: ensure the file is within the project directory.
+    # Using commonpath prevents prefix spoofing (e.g. /project/evil when
+    # project is /project/evi).
+    try:
+        common = os.path.commonpath([abs_project, abs_file])
+    except ValueError:
+        # Different drives on Windows -> always unsafe
+        common = ""
+    if common != abs_project:
         raise ValueError(
             f"Access denied: path '{file_path}' is outside project directory '{project_path}'"
         )
@@ -159,12 +166,113 @@ def get_file_info(project_path: str, file_path: str) -> dict:
 
 
 # ------------------------------------------------------------------
-# DOCKER / OLLAMA CONTROL FUNCTIONS
+# OLLAMA HTTP API HELPERS
 # ------------------------------------------------------------------
 
-def docker_check_ollama() -> dict:
-    """Check if Ollama is running (Docker or local)."""
-    # First try Docker
+def ollama_api_request(ollama_url: str, path: str, method: str = "GET", payload: dict = None, timeout: int = 30):
+    """Perform a request against the Ollama HTTP API."""
+    import urllib.request
+    url = ollama_url.rstrip("/") + path
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+    else:
+        data = None
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header("Content-Type", "application/json")
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        body = response.read().decode("utf-8")
+        if not body.strip():
+            return {}
+        return json.loads(body)
+
+
+def ollama_list_models(ollama_url: str = "http://localhost:11434") -> dict:
+    """List installed models via GET /api/tags."""
+    try:
+        data = ollama_api_request(ollama_url, "/api/tags", timeout=10)
+        return {"success": True, "result": data.get("models", [])}
+    except Exception as e:
+        return {"success": False, "error": f"Failed to list models: {str(e)}"}
+
+
+def ollama_running_models(ollama_url: str = "http://localhost:11434") -> dict:
+    """List models currently loaded in memory via GET /api/ps."""
+    try:
+        data = ollama_api_request(ollama_url, "/api/ps", timeout=10)
+        return {"success": True, "result": data.get("models", [])}
+    except Exception as e:
+        return {"success": False, "error": f"Failed to list running models: {str(e)}"}
+
+
+def ollama_load_model(ollama_url: str, model: str, keep_alive: str = "30m") -> dict:
+    """Load a model into memory via POST /api/generate with an empty prompt."""
+    if not model:
+        return {"success": False, "error": "model is required"}
+    try:
+        data = ollama_api_request(
+            ollama_url,
+            "/api/generate",
+            method="POST",
+            payload={"model": model, "prompt": "", "stream": False, "keep_alive": keep_alive},
+            timeout=120,
+        )
+        if data.get("done") or data.get("response") is not None:
+            return {"success": True, "result": f"Model '{model}' loaded into memory"}
+        return {"success": False, "error": f"Unexpected response for model '{model}'"}
+    except Exception as e:
+        return {"success": False, "error": f"Failed to load model '{model}': {str(e)}"}
+
+
+def ollama_stop_model(ollama_url: str, model: str) -> dict:
+    """Unload a model from memory via keep_alive=0."""
+    if not model:
+        return {"success": False, "error": "model is required"}
+    try:
+        ollama_api_request(
+            ollama_url,
+            "/api/generate",
+            method="POST",
+            payload={"model": model, "prompt": "", "stream": False, "keep_alive": 0},
+            timeout=60,
+        )
+        return {"success": True, "result": f"Model '{model}' unloaded from memory"}
+    except Exception as e:
+        return {"success": False, "error": f"Failed to stop model '{model}': {str(e)}"}
+
+
+# ------------------------------------------------------------------
+# DOCKER / OLLAMA CONTROL FUNCTIONS (mode-aware)
+# ------------------------------------------------------------------
+
+def _run_cmd(args, timeout=10) -> tuple:
+    """Run a subprocess command, returning (returncode, stdout, stderr)."""
+    result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+    return result.returncode, result.stdout, result.stderr
+
+
+def _check_local_ollama() -> dict:
+    """Check if Ollama is running as a local process/service."""
+    try:
+        data = ollama_api_request("http://localhost:11434", "/api/tags", timeout=3)
+        if isinstance(data, dict) and "models" in data:
+            return {
+                "success": True,
+                "running": True,
+                "mode": "local",
+                "details": "Ollama running locally (port 11434)",
+            }
+    except Exception:
+        pass
+    return {
+        "success": True,
+        "running": False,
+        "mode": "local",
+        "details": "Ollama local process is not running",
+    }
+
+
+def _check_docker_ollama() -> dict:
+    """Check if the Ollama Docker container is running."""
     try:
         result = subprocess.run(
             ['docker', 'ps', '--filter', 'name=ollama', '--format', '{{.Names}}\t{{.Status}}'],
@@ -180,10 +288,9 @@ def docker_check_ollama() -> dict:
             }
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
-    except Exception as e:
+    except Exception:
         pass
 
-    # Try local Ollama (check if process is running)
     try:
         result = subprocess.run(
             ['docker', 'ps', '-a', '--filter', 'name=ollama', '--format', '{{.Names}}\t{{.Status}}'],
@@ -199,33 +306,39 @@ def docker_check_ollama() -> dict:
                     "mode": "docker",
                     "details": status_line
                 }
-            else:
-                return {
-                    "success": True,
-                    "running": False,
-                    "mode": "docker",
-                    "details": f"Docker container exists but not running: {status_line}"
-                }
+            return {
+                "success": True,
+                "running": False,
+                "mode": "docker",
+                "details": f"Docker container exists but not running: {status_line}"
+            }
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
-    except Exception as e:
-        pass
-
-    # Check if Ollama is running locally (not in Docker)
-    try:
-        import urllib.request
-        req = urllib.request.Request('http://localhost:11434/api/tags', method='GET')
-        with urllib.request.urlopen(req, timeout=3) as response:
-            if response.status == 200:
-                return {
-                    "success": True,
-                    "running": True,
-                    "mode": "local",
-                    "details": "Ollama running locally (port 11434)"
-                }
     except Exception:
         pass
 
+    return {
+        "success": True,
+        "running": False,
+        "mode": "docker",
+        "details": "Ollama Docker container not found"
+    }
+
+
+def docker_check_ollama(mode: str = None) -> dict:
+    """Check if Ollama is running (Docker or local, honoring the configured mode)."""
+    if mode == "docker":
+        return _check_docker_ollama()
+    if mode == "local":
+        return _check_local_ollama()
+
+    # Auto-detection: Docker first, then local
+    docker_result = _check_docker_ollama()
+    if docker_result.get("running"):
+        return docker_result
+    local_result = _check_local_ollama()
+    if local_result.get("running"):
+        return local_result
     return {
         "success": True,
         "running": False,
@@ -234,10 +347,9 @@ def docker_check_ollama() -> dict:
     }
 
 
-def docker_start_ollama() -> dict:
+def _start_docker_ollama() -> dict:
     """Start Ollama in Docker."""
     try:
-        # Try to start existing container
         result = subprocess.run(
             ['docker', 'start', 'ollama'],
             capture_output=True, text=True, timeout=30
@@ -248,7 +360,6 @@ def docker_start_ollama() -> dict:
                 "result": "Ollama Docker container started",
                 "output": result.stdout.strip()
             }
-        # If container doesn't exist, try to run it
         result = subprocess.run(
             ['docker', 'run', '-d', '--name', 'ollama', '-p', '11434:11434', 'ollama/ollama'],
             capture_output=True, text=True, timeout=60
@@ -271,8 +382,26 @@ def docker_start_ollama() -> dict:
         return {"success": False, "error": f"Error starting Ollama: {str(e)}"}
 
 
-def docker_stop_ollama() -> dict:
-    """Stop Ollama in Docker."""
+def _start_local_ollama() -> dict:
+    """Start Ollama as a local process (ollama serve)."""
+    if _check_local_ollama().get("running"):
+        return {"success": True, "result": "Ollama local process already running"}
+    try:
+        subprocess.Popen(
+            ['ollama', 'serve'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return {"success": True, "result": "Ollama local process started (ollama serve)"}
+    except FileNotFoundError:
+        return {"success": False, "error": "Ollama binary not found in PATH"}
+    except Exception as e:
+        return {"success": False, "error": f"Error starting Ollama locally: {str(e)}"}
+
+
+def _stop_docker_ollama() -> dict:
+    """Stop the Ollama Docker container."""
     try:
         result = subprocess.run(
             ['docker', 'stop', 'ollama'],
@@ -294,6 +423,61 @@ def docker_stop_ollama() -> dict:
         return {"success": False, "error": "Docker is not installed or not in PATH"}
     except Exception as e:
         return {"success": False, "error": f"Error stopping Ollama: {str(e)}"}
+
+
+def _stop_local_ollama() -> dict:
+    """Stop the local Ollama process."""
+    if not _check_local_ollama().get("running"):
+        return {"success": True, "result": "Ollama local process is not running"}
+    try:
+        if sys.platform.startswith("win"):
+            result = subprocess.run(
+                ['taskkill', '/IM', 'ollama.exe', '/F'],
+                capture_output=True, text=True, timeout=15
+            )
+        else:
+            result = subprocess.run(
+                ['pkill', '-f', 'ollama serve'],
+                capture_output=True, text=True, timeout=15
+            )
+        if result.returncode == 0:
+            return {"success": True, "result": "Ollama local process stopped"}
+        return {"success": False, "error": f"Failed to stop Ollama local process: {result.stderr.strip()}"}
+    except FileNotFoundError:
+        return {"success": False, "error": "Could not find the process management tool"}
+    except Exception as e:
+        return {"success": False, "error": f"Error stopping Ollama locally: {str(e)}"}
+
+
+def docker_start_ollama(mode: str = None) -> dict:
+    """Start Ollama honoring the configured mode."""
+    if mode == "local":
+        return _start_local_ollama()
+    if mode == "docker":
+        return _start_docker_ollama()
+    if mode is None:
+        # Auto: prefer Docker
+        return _start_docker_ollama()
+    return {"success": False, "error": f"Unknown mode: {mode}"}
+
+
+def docker_stop_ollama(mode: str = None) -> dict:
+    """Stop Ollama honoring the configured mode."""
+    if mode == "local":
+        return _stop_local_ollama()
+    if mode == "docker":
+        return _stop_docker_ollama()
+    if mode is None:
+        return _stop_docker_ollama()
+    return {"success": False, "error": f"Unknown mode: {mode}"}
+
+
+def docker_restart_ollama(mode: str = None) -> dict:
+    """Restart Ollama (stop + start) honoring the configured mode."""
+    stop_result = docker_stop_ollama(mode)
+    if not stop_result.get("success") and "not running" not in stop_result.get("result", "").lower():
+        return stop_result
+    return docker_start_ollama(mode)
 
 
 def docker_get_info() -> dict:
@@ -354,59 +538,51 @@ def docker_get_info() -> dict:
     return {"success": True, "result": info}
 
 
-def docker_restart_ollama() -> dict:
-    """Restart Ollama in Docker."""
-    try:
-        result = subprocess.run(
-            ['docker', 'restart', 'ollama'],
-            capture_output=True, text=True, timeout=30
-        )
-        if result.returncode == 0:
-            return {
-                "success": True,
-                "result": "Ollama Docker container restarted",
-                "output": result.stdout.strip()
-            }
-        return {
-            "success": False,
-            "error": f"Failed to restart Ollama Docker: {result.stderr.strip()}"
-        }
-    except subprocess.TimeoutExpired:
-        return {"success": False, "error": "Timeout restarting Ollama Docker container"}
-    except FileNotFoundError:
-        return {"success": False, "error": "Docker is not installed or not in PATH"}
-    except Exception as e:
-        return {"success": False, "error": f"Error restarting Ollama: {str(e)}"}
-
-
 def execute_action(action_data: dict) -> dict:
     """
-    Main dispatcher for file and Docker actions.
+    Main dispatcher for file, Docker and Ollama actions.
     Expects:
         - action: str (required) - One of: read_file, write_file, delete_file,
           list_files, create_directory, append_file, get_file_info,
           docker_check_ollama, docker_start_ollama, docker_stop_ollama,
-          docker_restart_ollama, docker_get_info
+          docker_restart_ollama, docker_get_info, ollama_list_models,
+          ollama_running_models, ollama_load_model, ollama_stop_model
         - project_path: str (required for file actions) - The active project directory
         - path: str (required for most actions) - Relative path within project
         - content: str (optional) - File content for write/create actions
+        - mode: str (optional) - 'docker' | 'local' for service control actions
+        - ollama_url: str (optional) - Ollama API base URL
+        - model: str (required for model load/stop actions)
     """
     action = action_data.get("action", "")
     project_path = action_data.get("project_path", "")
     file_path = action_data.get("path", "")
     content = action_data.get("content", "")
+    mode = action_data.get("mode") or None
+    ollama_url = action_data.get("ollama_url") or "http://localhost:11434"
+    model = action_data.get("model", "")
 
-    # Docker actions don't require project_path
+    # Service control actions don't require project_path
     docker_actions = {
-        "docker_check_ollama": docker_check_ollama,
-        "docker_start_ollama": docker_start_ollama,
-        "docker_stop_ollama": docker_stop_ollama,
-        "docker_restart_ollama": docker_restart_ollama,
-        "docker_get_info": docker_get_info,
+        "docker_check_ollama": lambda: docker_check_ollama(mode),
+        "docker_start_ollama": lambda: docker_start_ollama(mode),
+        "docker_stop_ollama": lambda: docker_stop_ollama(mode),
+        "docker_restart_ollama": lambda: docker_restart_ollama(mode),
+        "docker_get_info": lambda: docker_get_info(),
+    }
+
+    # Ollama model actions talk to the HTTP API and don't require project_path
+    ollama_actions = {
+        "ollama_list_models": lambda: ollama_list_models(ollama_url),
+        "ollama_running_models": lambda: ollama_running_models(ollama_url),
+        "ollama_load_model": lambda: ollama_load_model(ollama_url, model),
+        "ollama_stop_model": lambda: ollama_stop_model(ollama_url, model),
     }
 
     if action in docker_actions:
         return docker_actions[action]()
+    if action in ollama_actions:
+        return ollama_actions[action]()
 
     # File actions require project_path
     if not project_path:
@@ -430,7 +606,7 @@ def execute_action(action_data: dict) -> dict:
 
     handler = action_map.get(action)
     if not handler:
-        all_actions = list(action_map.keys()) + list(docker_actions.keys())
+        all_actions = list(action_map.keys()) + list(docker_actions.keys()) + list(ollama_actions.keys())
         return {"success": False, "error": f"Unknown action: {action}. Supported: {', '.join(all_actions)}"}
 
     return handler()

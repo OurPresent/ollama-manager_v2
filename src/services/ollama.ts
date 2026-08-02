@@ -1,4 +1,5 @@
 import { OllamaModel, ChatMessage } from '../types';
+import type { OllamaModelDto, RunningModelDto } from '../types/dto';
 import { getAppSettings } from './systemApi';
 
 let cachedOllamaBaseUrl: string | null = null;
@@ -30,8 +31,8 @@ export const checkOllamaStatus = async (): Promise<{ running: boolean; details: 
       return { running: true, details: 'Ollama is running' };
     }
     return { running: false, details: 'Ollama is not responding' };
-  } catch (error: any) {
-    return { running: false, details: error.message || 'Cannot connect to Ollama' };
+  } catch (error: unknown) {
+    return { running: false, details: error instanceof Error ? error.message : 'Cannot connect to Ollama' };
   }
 };
 
@@ -49,28 +50,100 @@ export const fetchInstalledModels = async (): Promise<OllamaModel[]> => {
 
 export const startOllama = async (): Promise<{ status: string; message: string; output: string }> => {
   try {
+    const settings = await getAppSettings();
     const res = await fetch('/api/docker/ollama/start', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: settings.ollamaMode }),
     });
     if (!res.ok) throw new Error('Failed to start Ollama');
     return await res.json();
-  } catch (error: any) {
-    throw new Error(`Error starting Ollama: ${error.message}`);
+  } catch (error: unknown) {
+    throw new Error(`Error starting Ollama: ${error instanceof Error ? error.message : String(error)}`);
   }
 };
 
 export const stopOllama = async (): Promise<{ status: string; message: string; output: string }> => {
   try {
+    const settings = await getAppSettings();
     const res = await fetch('/api/docker/ollama/stop', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: settings.ollamaMode }),
     });
     if (!res.ok) throw new Error('Failed to stop Ollama');
     return await res.json();
-  } catch (error: any) {
-    throw new Error(`Error stopping Ollama: ${error.message}`);
+  } catch (error: unknown) {
+    throw new Error(`Error stopping Ollama: ${error instanceof Error ? error.message : String(error)}`);
   }
+};
+
+export const listModels = async (): Promise<OllamaModelDto[]> => {
+  try {
+    const res = await fetch('/api/ollama/models');
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (!data.success) return [];
+    const rawModels: Array<Record<string, unknown>> = Array.isArray(data.result) ? data.result : [];
+    return rawModels.map((m) => ({
+      name: String(m.name ?? ''),
+      model: String(m.model ?? ''),
+      modifiedAt: String(m.modified_at ?? ''),
+      size: Number(m.size ?? 0),
+      parameterSize:
+        m.details && typeof m.details === 'object'
+          ? String((m.details as Record<string, unknown>).parameter_size ?? null)
+          : null,
+      quantizationLevel:
+        m.details && typeof m.details === 'object'
+          ? String((m.details as Record<string, unknown>).quantization_level ?? null)
+          : null,
+    }));
+  } catch {
+    return [];
+  }
+};
+
+export const getRunningModels = async (): Promise<RunningModelDto[]> => {
+  try {
+    const res = await fetch('/api/ollama/running');
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (!data.success) return [];
+    const rawModels: Array<Record<string, unknown>> = Array.isArray(data.result) ? data.result : [];
+    return rawModels.map((m) => ({
+      name: String(m.name ?? ''),
+      model: String(m.model ?? ''),
+      size: Number(m.size ?? 0),
+      sizeVram: Number(m.size_vram ?? 0),
+      expiresAt: m.expires_at ? String(m.expires_at) : null,
+      contextLength: m.context_length != null ? Number(m.context_length) : null,
+    }));
+  } catch {
+    return [];
+  }
+};
+
+export const loadOllamaModel = async (model: string): Promise<void> => {
+  const res = await fetch('/api/ollama/models/load', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model }),
+  });
+  if (!res.ok) throw new Error('Failed to load model');
+  const data = await res.json();
+  if (!data.success) throw new Error(data.error || 'Failed to load model');
+};
+
+export const stopOllamaModel = async (model: string): Promise<void> => {
+  const res = await fetch('/api/ollama/models/stop', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model }),
+  });
+  if (!res.ok) throw new Error('Failed to stop model');
+  const data = await res.json();
+  if (!data.success) throw new Error(data.error || 'Failed to stop model');
 };
 
 export const deleteModel = async (modelName: string): Promise<boolean> => {

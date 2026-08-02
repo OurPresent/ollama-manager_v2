@@ -27,7 +27,11 @@ export const App: React.FC = () => {
   const [isOllamaOnline, setIsOllamaOnline] = useState(false);
   const [models, setModels] = useState<OllamaModel[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('');
-  const [theme, setTheme] = useState<Theme>('dark');
+  const [theme, setTheme] = useState<Theme>(() => {
+    const saved = localStorage.getItem('theme');
+    if (saved === 'dark' || saved === 'light' || saved === 'system') return saved;
+    return 'dark';
+  });
   const [projectInfo, setProjectInfo] = useState<ProjectInfo>({ name: '', path: '' });
   const [projectContext, setProjectContext] = useState<string>('// Contexto general del proyecto...');
 

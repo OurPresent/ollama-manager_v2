@@ -1,14 +1,18 @@
 declare module 'sql.js' {
+  export interface Statement {
+    bind(params?: any): boolean;
+    step(): boolean;
+    get(): any[];
+    getAsObject(): { [key: string]: any };
+    run(params?: any): { lastInsertRowid: number };
+    all(params?: any): any[];
+    free(): void;
+  }
+
   export interface Database {
     exec(sql: string): void;
     prepare(sql: string): Statement;
     export(): Uint8Array;
-  }
-
-  export interface Statement {
-    run(...params: any[]): { lastInsertRowid: number };
-    all(...params: any[]): any[];
-    get(...params: any[]): any;
   }
 
   export interface SqlJsStatic {

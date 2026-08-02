@@ -596,3 +596,31 @@ Ese seria el orden correcto:
 2. estabilizar backend,
 3. migrar frontend a API,
 4. despues ampliar agentes, planes, memoria y auditoria.
+
+---
+
+## Estado de implementacion (agosto 2026)
+
+Completado:
+
+- [x] Backend modular: repositorios + routers Express en `server/` (settings, projects, agents, graph, queries, logs, actions, docker, ollama, chat, audit), puerto `8502`, montados en `server/index.ts`.
+- [x] `actions.py` corregido (path-traversal con `os.path.commonpath`) y mode-aware para Ollama (docker/local) con helpers HTTP (`ollama_api_request`, `ollama_list_models`, `ollama_running_models`, `ollama_load_model`, `ollama_stop_model`).
+- [x] Servicio y rutas de modelos en memoria (`/api/ollama/models`, `/running`, `/models/load`, `/models/stop`) via `server/services/ollamaService.ts`.
+- [x] Tipado del frontend: `src/types/dto.ts`, stores zustand, `apiDb.ts`/`systemApi.ts` sin `any`; eliminado el hack `window.__approvalResolve` (aprobaciones con resolvers internos + suscripcion).
+- [x] Chat persistido en SQLite: `chat_sessions` + `chat_messages`, `src/services/chatDb.ts`, `src/store/chatStore.ts`, `ChatView` reescrito y `Sidebar` con Conversaciones.
+- [x] `HistoryView` desde BD: tabs Nodos / Bitacoras / Consultas / Auditoria.
+- [x] `PlanesView` sin agentes hardcodeados: carga los 6 agentes semilla desde la BD (prompts con instrucciones `<action>`); cada salida de agente persiste en `task_logs` y sincroniza el grafo.
+- [x] Indice de archivos: `server/services/fileIndexService.ts` + endpoints `POST /:id/index`, `GET /:id/files?q=`, `GET /:id/files/content` (con proteccion de path traversal) + `file_access_log`.
+- [x] `FileAutocomplete` conectado en `ChatView` (controlado, lista real desde el indice, boton de reindexado) y referencias `$archivo` resueltas con contenido real del backend.
+- [x] Settings sin hardcode de puerto (usa `getBackendUrl()`) y tema sincronizado con `localStorage` + script anti-FOUC en `index.html`.
+- [x] Endpoints de auditoria: `/api/audit/events`, `/api/audit/logs`, `/api/audit/file-access`.
+- [x] Panel "Modelos en Memoria" en `OllamaView` (listar/cargar/descargar con polling).
+- [x] Verificacion: `npx tsc --noEmit` limpio y `npx vite build` exitoso.
+
+Pendiente a futuro:
+
+- [ ] Persistir `plans`, `plan_runs` y `agent_runs` como tablas de ejecucion (hoy el pipeline persiste salidas en `task_logs` y grafo).
+- [ ] Tablas `project_snapshots`, `project_context_blocks` y generacion automatica de contexto estructural.
+- [ ] Persistir aprobaciones en `approval_requests`/`approval_decisions` y disparar `requestApproval()` desde acciones sensibles.
+- [ ] Versionado de prompts de agentes (`agent_versions`, `agent_runs`).
+- [ ] Endpoint de resolucion de referencias batch (`resolve-references`).

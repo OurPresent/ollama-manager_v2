@@ -19,18 +19,28 @@ export interface ApprovalResponse {
   feedback?: string;
 }
 
-type ApprovalCallback = (request: ApprovalRequest) => Promise<ApprovalResponse>;
+type ApprovalListener = (pending: ApprovalRequest[]) => void;
 
 class ApprovalSystem {
   private pendingApprovals: Map<string, ApprovalRequest> = new Map();
-  private callback: ApprovalCallback | null = null;
+  private resolvers: Map<string, (response: ApprovalResponse) => void> = new Map();
+  private listeners: Set<ApprovalListener> = new Set();
 
-  setCallback(callback: ApprovalCallback) {
-    this.callback = callback;
+  subscribe(listener: ApprovalListener): () => void {
+    this.listeners.add(listener);
+    listener(this.getPendingApprovals());
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private notify() {
+    const list = this.getPendingApprovals();
+    this.listeners.forEach((listener) => listener(list));
   }
 
   async requestApproval(request: Omit<ApprovalRequest, 'id' | 'timestamp'>): Promise<ApprovalResponse> {
-    const id = `approval_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const id = `approval_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
     const fullRequest: ApprovalRequest = {
       ...request,
       id,
@@ -38,27 +48,27 @@ class ApprovalSystem {
     };
 
     this.pendingApprovals.set(id, fullRequest);
+    this.notify();
 
-    if (!this.callback) {
-      return {
-        requestId: id,
-        decision: 'rejected',
-        feedback: 'No approval callback configured',
-      };
-    }
+    return new Promise<ApprovalResponse>((resolve) => {
+      this.resolvers.set(id, resolve);
+    });
+  }
 
-    try {
-      const response = await this.callback(fullRequest);
-      this.pendingApprovals.delete(id);
-      return response;
-    } catch (error) {
-      this.pendingApprovals.delete(id);
-      return {
-        requestId: id,
-        decision: 'rejected',
-        feedback: 'Error processing approval',
-      };
-    }
+  resolveApproval(
+    requestId: string,
+    decision: 'approved' | 'rejected' | 'alternative',
+    selectedAlternative?: number,
+    feedback?: string
+  ): void {
+    const resolve = this.resolvers.get(requestId);
+    if (!resolve) return;
+
+    this.resolvers.delete(requestId);
+    this.pendingApprovals.delete(requestId);
+    this.notify();
+
+    resolve({ requestId, decision, selectedAlternative, feedback });
   }
 
   getPendingApprovals(): ApprovalRequest[] {

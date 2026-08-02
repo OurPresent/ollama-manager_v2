@@ -3,6 +3,7 @@ import { Settings, Sun, Moon, Monitor, Server, Cpu, Palette, Save, AlertTriangle
 import { checkOllamaStatus, setCachedOllamaBaseUrl, startOllama, stopOllama } from '../services/ollama';
 import { checkDockerOllamaStatus, startOllamaDocker, stopOllamaDocker, restartOllamaDocker, getDockerInfo, DockerStatus, DockerInfo } from '../services/dockerControl';
 import { AppSettings, getAppSettings, saveAppSettings, Theme } from '../services/systemApi';
+import { getBackendUrl } from '../services/backend';
 
 interface SettingsViewProps {
   onThemeSaved?: (theme: Theme) => void;
@@ -75,8 +76,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onThemeSaved, onOlla
     try {
       await restartOllamaDocker();
       await checkServicesStatus();
-    } catch (error: any) {
-      alert(`Error: ${error.message}`);
+    } catch (error: unknown) {
+      alert(`Error: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setLoading(false);
     }
@@ -87,8 +88,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onThemeSaved, onOlla
     try {
       await startOllamaDocker();
       await checkServicesStatus();
-    } catch (error: any) {
-      alert(`Error: ${error.message}`);
+    } catch (error: unknown) {
+      alert(`Error: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setLoading(false);
     }
@@ -99,8 +100,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onThemeSaved, onOlla
     try {
       await stopOllamaDocker();
       await checkServicesStatus();
-    } catch (error: any) {
-      alert(`Error: ${error.message}`);
+    } catch (error: unknown) {
+      alert(`Error: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setLoading(false);
     }
@@ -128,8 +129,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onThemeSaved, onOlla
       onOllamaUrlSaved?.(serviceConfig.ollamaUrl);
       setSaveMessage('✓ Configuración guardada en SQLite');
       setTimeout(() => setSaveMessage(''), 3000);
-    } catch (error: any) {
-      setSaveError(error.message || 'No se pudo guardar la configuración');
+    } catch (error: unknown) {
+      setSaveError(error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -138,8 +139,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onThemeSaved, onOlla
     try {
       await startOllama();
       await checkServicesStatus();
-    } catch (error: any) {
-      alert(`Error: ${error.message}`);
+    } catch (error: unknown) {
+      alert(`Error: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setLoading(false);
     }
@@ -150,8 +151,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onThemeSaved, onOlla
     try {
       await stopOllama();
       await checkServicesStatus();
-    } catch (error: any) {
-      alert(`Error: ${error.message}`);
+    } catch (error: unknown) {
+      alert(`Error: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setLoading(false);
     }
@@ -415,7 +416,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onThemeSaved, onOlla
         <div className="space-y-2 text-xs font-mono text-zinc-500 dark:text-zinc-400">
           <div className="flex justify-between">
             <span>Backend:</span>
-            <span className="text-zinc-700 dark:text-zinc-300">http://localhost:8502</span>
+            <span className="text-zinc-700 dark:text-zinc-300">{getBackendUrl()}</span>
           </div>
           <div className="flex justify-between">
             <span>Ollama:</span>

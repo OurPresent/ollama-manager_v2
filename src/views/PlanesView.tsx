@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { streamChatCompletion } from '../services/ollama';
 import { parseAndSaveMemoryJson } from '../services/memoryDb';
 import { executeAllActions, formatActionResult } from '../services/fileActions';
+import { saveTaskLogToSqlite } from '../services/apiDb';
+import { fetchAgents } from '../services/systemApi';
+import type { PersistedAgent } from '../types';
 import { Play, CheckCircle2, Loader2, Sparkles, FileCode } from 'lucide-react';
 
 interface Props {
@@ -17,6 +20,11 @@ export const PlanesView: React.FC<Props> = ({ selectedModel, projectInfo, projec
   const [isRunningPipeline, setIsRunningPipeline] = useState(false);
   const [agentOutputs, setAgentOutputs] = useState<{ role: string; output: string }[]>([]);
   const [executingActions, setExecutingActions] = useState(false);
+  const [agents, setAgents] = useState<PersistedAgent[]>([]);
+
+  useEffect(() => {
+    fetchAgents().then(setAgents).catch(() => setAgents([]));
+  }, []);
 
   const projectPath = projectInfo.path || projectInfo.name;
 
@@ -86,39 +94,15 @@ Ejemplo de uso:
     setIsRunningPipeline(true);
     setAgentOutputs([]);
 
-    const AGENT_ROLES = [
-      { name: 'Gestor de Proyecto Lead', sys: `Project Manager Senior. Desglosa tareas y estructura la ejecución para el proyecto "${projectInfo.name}".
-
-Puedes crear archivos de planificación y documentación usando bloques <action>:
-<action>
-{"action": "write_file", "path": "docs/plan.md", "content": "contenido del plan"}
-</action>` },
-      { name: 'Desarrollador Backend', sys: `Backend Senior en Python/TypeScript para el proyecto "${projectInfo.name}". Escribe arquitectura y código de servicios.
-
-Puedes crear y modificar archivos del proyecto usando bloques <action>:
-<action>
-{"action": "write_file", "path": "src/services/mi-servicio.ts", "content": "// código del servicio"}
-</action>` },
-      { name: 'Desarrollador Frontend', sys: `Frontend Lead en React, TS y Tailwind para el proyecto "${projectInfo.name}". Diseña interfaces avanzadas.
-
-Puedes crear y modificar archivos del proyecto usando bloques <action>:
-<action>
-{"action": "write_file", "path": "src/components/MiComponente.tsx", "content": "// código del componente"}
-</action>` },
-      { name: 'DBA (SQL/NoSQL)', sys: `DBA Experto para el proyecto "${projectInfo.name}". Diseña esquemas, relaciones e índices eficientes.
-
-Puedes crear archivos de esquemas y migraciones usando bloques <action>.` },
-      { name: 'QA Tester', sys: `Tester QA para el proyecto "${projectInfo.name}". Genera estrategias de testing, casos de borde y suite de pruebas.
-
-Puedes crear archivos de tests usando bloques <action>.` },
-      { name: 'DevOps Engineer', sys: `Eng DevOps para el proyecto "${projectInfo.name}". Diseña Dockerfiles, pipelines CI/CD y configuraciones de despliegue.
-
-Puedes crear archivos de configuración usando bloques <action>.` }
-    ];
+    if (agents.length === 0) {
+      setAgentOutputs([{ role: 'Pipeline', output: 'No hay agentes configurados en la base de datos. Créalos en la vista Agentes.' }]);
+      setIsRunningPipeline(false);
+      return;
+    }
 
     let prevOutputs: string[] = [];
 
-    for (const role of AGENT_ROLES) {
+    for (const role of agents) {
       const promptAcc = `PLAN TÉCNICO:\n${plan}\n\nAVANCES PREVIOS DE OTROS AGENTES:\n${prevOutputs.slice(-2).join('\n---\n')}`;
       let currentOutput = '';
 
@@ -128,7 +112,7 @@ Puedes crear archivos de configuración usando bloques <action>.` }
         await streamChatCompletion(
           selectedModel,
           [
-            { role: 'system', content: role.sys },
+            { role: 'system', content: role.systemPrompt },
             { role: 'user', content: promptAcc }
           ],
           (chunk) => {
@@ -158,6 +142,21 @@ Puedes crear archivos de configuración usando bloques <action>.` }
         }
 
         prevOutputs.push(`### ${role.name}\n${currentOutput}`);
+
+        // Persistir salida del agente en la bitácora (Fase 2.2)
+        try {
+          await saveTaskLogToSqlite({
+            taskId: `pipeline-${Date.now()}-${role.name.replace(/\s+/g, '-').toLowerCase()}`,
+            projectName: projectInfo.name,
+            title: `Pipeline "${goal || projectInfo.name}": ${role.role || role.name}`,
+            markdownContent: currentOutput,
+            tags: ['pipeline', role.role || role.name],
+            createdAt: new Date().toISOString(),
+          });
+          await parseAndSaveMemoryJson(projectInfo.name, currentOutput);
+        } catch (err) {
+          console.error('Error persistiendo salida del agente:', err);
+        }
       } catch (err) {
         console.error(err);
       }

@@ -32,8 +32,8 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, projectInfo: _proje
     try {
       const data = await fetchAgents();
       setAgents(data);
-    } catch (err: any) {
-      setError(err.message || 'No se pudieron cargar los agentes');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'No se pudieron cargar los agentes');
     } finally {
       setIsLoading(false);
     }
@@ -73,8 +73,8 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, projectInfo: _proje
       setShowAddModal(false);
       setFormData({ name: '', role: '', systemPrompt: '', description: '' });
       setEditingAgent(null);
-    } catch (err: any) {
-      setError(err.message || 'No se pudo guardar el agente');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'No se pudo guardar el agente');
     }
   };
 
@@ -82,8 +82,8 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, projectInfo: _proje
     try {
       await deleteAgent(id);
       await loadAgents();
-    } catch (err: any) {
-      setError(err.message || 'No se pudo eliminar el agente');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'No se pudo eliminar el agente');
     }
   };
 

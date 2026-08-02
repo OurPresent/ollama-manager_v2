@@ -1,7 +1,24 @@
 import { GraphNode, TaskLog } from '../types';
+import { saveGraphNodeToSqlite, saveTaskLogToSqlite } from './apiDb';
 
 const GRAPH_NODES_KEY = 'llmx_graph_nodes';
 const TASK_LOGS_KEY = 'llmx_task_logs';
+
+interface MemoryNodePayload {
+  id?: string;
+  tipo?: string;
+  nombre?: string;
+  contenido?: string;
+}
+
+const asGraphNode = (n: MemoryNodePayload): GraphNode => ({
+  id: n.id || `NODE-${Math.random().toString(36).substring(2, 7).toUpperCase()}`,
+  projectName: '',
+  nodeType: (n.tipo as GraphNode['nodeType']) || 'ENTIDAD',
+  title: n.nombre || 'Sin Nombre',
+  content: n.contenido || '',
+  updatedAt: new Date().toISOString(),
+});
 
 export const getGraphNodes = (projectName?: string): GraphNode[] => {
   const data = localStorage.getItem(GRAPH_NODES_KEY);
@@ -43,7 +60,7 @@ export const saveTaskLog = (log: TaskLog): void => {
   localStorage.setItem(TASK_LOGS_KEY, JSON.stringify(logs));
 };
 
-export const parseAndSaveMemoryJson = (projectName: string, rawResponse: string): boolean => {
+export const parseAndSaveMemoryJson = async (projectName: string, rawResponse: string): Promise<boolean> => {
   if (!rawResponse.includes('```json_memory')) return false;
 
   try {
@@ -52,29 +69,24 @@ export const parseAndSaveMemoryJson = (projectName: string, rawResponse: string)
 
     if (memoryData.bitacora_md) {
       const b = memoryData.bitacora_md;
-      saveTaskLog({
+      const log: TaskLog = {
         taskId: b.id || `TASK-${Math.random().toString(36).substring(2, 7).toUpperCase()}`,
         projectName,
         title: b.titulo || 'Sin Título',
         markdownContent: b.contenido || '',
         tags: b.tags || [],
         createdAt: new Date().toISOString(),
-      });
+      };
+      saveTaskLog(log);
+      await saveTaskLogToSqlite(log);
     }
 
     if (Array.isArray(memoryData.nodos_actualizar)) {
-      memoryData.nodos_actualizar.forEach((n: any) => {
-        if (n.id) {
-          saveGraphNode({
-            id: n.id,
-            projectName,
-            nodeType: n.tipo || 'ENTIDAD',
-            title: n.nombre || 'Sin Nombre',
-            content: n.contenido || '',
-            updatedAt: new Date().toISOString(),
-          });
-        }
-      });
+      const nodes: GraphNode[] = (memoryData.nodos_actualizar as MemoryNodePayload[])
+        .filter((n) => n.id)
+        .map((n) => ({ ...asGraphNode(n), projectName }));
+      nodes.forEach(saveGraphNode);
+      await Promise.all(nodes.map((node) => saveGraphNodeToSqlite(node)));
     }
 
     return true;

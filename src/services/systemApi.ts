@@ -1,6 +1,23 @@
-import { PersistedAgent, ProjectInfo } from '../types';
+import { PersistedAgent } from '../types';
+import type { ProjectDto } from '../types/dto';
 
 const API_BASE = '/api';
+
+type ProjectRow = {
+  id: string;
+  name: string;
+  root_path: string;
+  description: string | null;
+  is_active: number;
+};
+
+const mapProjectRow = (project: ProjectRow): ProjectDto => ({
+  id: project.id,
+  name: project.name,
+  path: project.root_path,
+  description: project.description || '',
+  isActive: Boolean(project.is_active),
+});
 
 export type Theme = 'dark' | 'light' | 'system';
 
@@ -15,7 +32,9 @@ export const getAppSettings = async (): Promise<AppSettings> => {
   if (!res.ok) {
     throw new Error('No se pudo cargar la configuración');
   }
-  return res.json();
+  const settings = (await res.json()) as AppSettings;
+  localStorage.setItem('theme', settings.theme || 'dark');
+  return settings;
 };
 
 export const saveAppSettings = async (settings: AppSettings): Promise<void> => {
@@ -28,45 +47,37 @@ export const saveAppSettings = async (settings: AppSettings): Promise<void> => {
   if (!res.ok) {
     throw new Error('No se pudo guardar la configuración');
   }
+
+  localStorage.setItem('theme', settings.theme);
 };
 
-export const fetchProjects = async (): Promise<ProjectInfo[]> => {
+export const fetchProjects = async (): Promise<ProjectDto[]> => {
   const res = await fetch(`${API_BASE}/projects`);
   if (!res.ok) {
     throw new Error('No se pudieron cargar los proyectos');
   }
 
-  const projects = await res.json();
-  return projects.map((project: any) => ({
-    id: project.id,
-    name: project.name,
-    path: project.root_path,
-    description: project.description || '',
-  }));
+  const projects = (await res.json()) as ProjectRow[];
+  return projects.map(mapProjectRow);
 };
 
-export const fetchActiveProject = async (): Promise<ProjectInfo | null> => {
+export const fetchActiveProject = async (): Promise<ProjectDto | null> => {
   const res = await fetch(`${API_BASE}/projects/active`);
   if (!res.ok) {
     throw new Error('No se pudo cargar el proyecto activo');
   }
 
-  const project = await res.json();
+  const project = (await res.json()) as ProjectRow | null;
   if (!project) return null;
 
-  return {
-    id: project.id,
-    name: project.name,
-    path: project.root_path,
-    description: project.description || '',
-  };
+  return mapProjectRow(project);
 };
 
 export const registerProject = async (payload: {
   name: string;
   path: string;
   description?: string;
-}): Promise<ProjectInfo> => {
+}): Promise<ProjectDto> => {
   const res = await fetch(`${API_BASE}/projects/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -83,12 +94,7 @@ export const registerProject = async (payload: {
   }
 
   const data = await res.json();
-  return {
-    id: data.project.id,
-    name: data.project.name,
-    path: data.project.root_path,
-    description: data.project.description || '',
-  };
+  return mapProjectRow(data.project as ProjectRow);
 };
 
 export const activateProject = async (projectId: string): Promise<void> => {
@@ -109,7 +115,11 @@ export const fetchAgents = async (): Promise<PersistedAgent[]> => {
   return res.json();
 };
 
-export const createAgent = async (payload: Omit<PersistedAgent, 'id' | 'status'>): Promise<void> => {
+export type AgentPayload = Omit<PersistedAgent, 'id' | 'status' | 'lastExecution' | 'description'> & {
+  description?: string;
+};
+
+export const createAgent = async (payload: AgentPayload): Promise<void> => {
   const res = await fetch(`${API_BASE}/agents`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -123,7 +133,7 @@ export const createAgent = async (payload: Omit<PersistedAgent, 'id' | 'status'>
 
 export const updateAgent = async (
   id: string,
-  payload: Omit<PersistedAgent, 'id' | 'status'>
+  payload: AgentPayload
 ): Promise<void> => {
   const res = await fetch(`${API_BASE}/agents/${id}`, {
     method: 'PUT',

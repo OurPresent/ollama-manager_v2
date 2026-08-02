@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { checkDockerOllamaStatus, startOllamaDocker, stopOllamaDocker, DockerStatus } from '../services/dockerControl';
 import { activateProject, fetchActiveProject, fetchProjects, registerProject } from '../services/systemApi';
+import { useChatStore } from '../store/chatStore';
 
 interface SidebarProps {
   activeView: ActiveView;
@@ -46,6 +47,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [isSavingProject, setIsSavingProject] = useState(false);
   const [projectError, setProjectError] = useState('');
   const [projectMessage, setProjectMessage] = useState('');
+
+  const chatSessions = useChatStore((state) => state.sessions);
+  const currentSessionId = useChatStore((state) => state.currentSessionId);
+  const switchChatSession = useChatStore((state) => state.switchSession);
 
   const menuItems: { id: ActiveView; label: string; icon: React.ReactNode }[] = [
     { id: 'home', label: 'Inicio', icon: <Home className="w-4 h-4" /> },
@@ -144,8 +149,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       setProjectPathInput(project.path);
       setProjectMessage('Proyecto guardado y activado en SQLite.');
       setTimeout(() => setProjectMessage(''), 3000);
-    } catch (error: any) {
-      setProjectError(error.message || 'No se pudo registrar el proyecto.');
+    } catch (error: unknown) {
+      setProjectError(error instanceof Error ? error.message : 'No se pudo registrar el proyecto.');
     } finally {
       setIsSavingProject(false);
     }
@@ -162,8 +167,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         setProjectPathInput(project.path);
       }
       await loadProjects();
-    } catch (error: any) {
-      setProjectError(error.message || 'No se pudo activar el proyecto.');
+    } catch (error: unknown) {
+      setProjectError(error instanceof Error ? error.message : 'No se pudo activar el proyecto.');
     }
   };
 
@@ -248,6 +253,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
             );
           })}
         </nav>
+
+        {/* Conversaciones guardadas */}
+        {chatSessions.length > 0 && (
+          <nav className="space-y-1 mt-2">
+            <span className="text-[10px] font-mono text-zinc-400 dark:text-zinc-500 uppercase tracking-wider px-2">Conversaciones</span>
+            {chatSessions.slice(0, 6).map((session) => (
+              <button
+                key={session.id}
+                onClick={async () => {
+                  await switchChatSession(session.id);
+                  setActiveView('chat');
+                }}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-mono text-xs transition ${
+                  currentSessionId === session.id
+                    ? 'bg-amber-50 dark:bg-emerald-500/10 text-amber-600 dark:text-emerald-400 border border-amber-300 dark:border-emerald-500/30'
+                    : 'text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900 hover:text-zinc-700 dark:hover:text-zinc-200'
+                }`}
+              >
+                <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">{session.title || 'Nuevo Chat'}</span>
+              </button>
+            ))}
+          </nav>
+        )}
       </div>
 
       {/* Selectores globales de Proyecto y Modelo */}

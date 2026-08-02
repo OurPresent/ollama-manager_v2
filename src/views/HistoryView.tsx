@@ -1,21 +1,56 @@
-import React, { useState } from 'react';
-import { getGraphNodes, getTaskLogs } from '../services/memoryDb';
-import { History, Share2, FileText } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { History, Share2, FileText, Terminal, ShieldCheck } from 'lucide-react';
+import type { GraphNodeDto, TaskLogDto, ProjectQueryDto } from '../types/dto';
+import { fetchGraphNodes, fetchTaskLogs, fetchProjectQueries, fetchAuditEvents, fetchSystemLogs, AuditEventDto, SystemLogDto } from '../services/apiDb';
 
 interface Props {
   projectInfo: { name: string; path: string };
 }
 
+type Tab = 'nodes' | 'logs' | 'queries' | 'audit';
+
 export const HistoryView: React.FC<Props> = ({ projectInfo }) => {
-  const [activeTab, setActiveTab] = useState<'nodes' | 'logs'>('nodes');
-  const nodes = getGraphNodes(projectInfo.name);
-  const logs = getTaskLogs(projectInfo.name);
+  const [activeTab, setActiveTab] = useState<Tab>('nodes');
+  const [nodes, setNodes] = useState<GraphNodeDto[]>([]);
+  const [logs, setLogs] = useState<TaskLogDto[]>([]);
+  const [queries, setQueries] = useState<ProjectQueryDto[]>([]);
+  const [auditEvents, setAuditEvents] = useState<AuditEventDto[]>([]);
+  const [systemLogs, setSystemLogs] = useState<SystemLogDto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadHistory = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const [nodeList, logList, queryList, eventList, sysLogs] = await Promise.all([
+        fetchGraphNodes(projectInfo.name),
+        fetchTaskLogs(projectInfo.name),
+        fetchProjectQueries(projectInfo.name),
+        fetchAuditEvents(),
+        fetchSystemLogs(),
+      ]);
+      setNodes(nodeList);
+      setLogs(logList);
+      setQueries(queryList);
+      setAuditEvents(eventList);
+      setSystemLogs(sysLogs);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al cargar el historial');
+    } finally {
+      setLoading(false);
+    }
+  }, [projectInfo.name]);
+
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory]);
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6 text-zinc-800 dark:text-zinc-100">
       <header className="border-b border-zinc-200 dark:border-zinc-800 pb-3">
         <h1 className="text-xl font-mono font-bold flex items-center gap-2 text-zinc-800 dark:text-zinc-100">
-          <History className="w-5 h-5 text-amber-500 dark:text-emerald-400" /> Memoria Persistente (Grafo & MD)
+          <History className="w-5 h-5 text-amber-500 dark:text-emerald-400" /> Memoria Persistente (Grafo, MD & Consultas)
         </h1>
         <p className="text-xs text-zinc-500 dark:text-zinc-400">Inspección de la base de conocimiento registrada para "{projectInfo.name}"</p>
       </header>
@@ -42,10 +77,35 @@ export const HistoryView: React.FC<Props> = ({ projectInfo }) => {
         >
           <FileText className="w-3.5 h-3.5" /> Bitácoras Markdown ({logs.length})
         </button>
+        <button
+          onClick={() => setActiveTab('queries')}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg font-mono text-xs transition ${
+            activeTab === 'queries'
+              ? 'bg-amber-50 dark:bg-emerald-500/10 text-amber-600 dark:text-emerald-400 border border-amber-300 dark:border-emerald-500/30'
+              : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+          }`}
+        >
+          <Terminal className="w-3.5 h-3.5" /> Consultas ({queries.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('audit')}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg font-mono text-xs transition ${
+            activeTab === 'audit'
+              ? 'bg-amber-50 dark:bg-emerald-500/10 text-amber-600 dark:text-emerald-400 border border-amber-300 dark:border-emerald-500/30'
+              : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+          }`}
+        >
+          <ShieldCheck className="w-3.5 h-3.5" /> Auditoría ({auditEvents.length + systemLogs.length})
+        </button>
       </div>
 
+      {loading && (
+        <p className="font-mono text-xs text-zinc-500 dark:text-zinc-400">Cargando historial desde SQLite...</p>
+      )}
+      {error && <p className="font-mono text-xs text-rose-500">{error}</p>}
+
       {/* Contenido */}
-      {activeTab === 'nodes' ? (
+      {!loading && !error && activeTab === 'nodes' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {nodes.length === 0 ? (
             <p className="font-mono text-xs text-zinc-500 dark:text-zinc-500">No hay nodos registrados en el grafo.</p>
@@ -62,7 +122,9 @@ export const HistoryView: React.FC<Props> = ({ projectInfo }) => {
             ))
           )}
         </div>
-      ) : (
+      )}
+
+      {!loading && !error && activeTab === 'logs' && (
         <div className="space-y-4">
           {logs.length === 0 ? (
             <p className="font-mono text-xs text-zinc-500 dark:text-zinc-500">No hay bitácoras guardadas.</p>
@@ -79,6 +141,94 @@ export const HistoryView: React.FC<Props> = ({ projectInfo }) => {
               </details>
             ))
           )}
+        </div>
+      )}
+
+      {!loading && !error && activeTab === 'queries' && (
+        <div className="space-y-4">
+          {queries.length === 0 ? (
+            <p className="font-mono text-xs text-zinc-500 dark:text-zinc-500">No hay consultas registradas.</p>
+          ) : (
+            queries.map((q) => (
+              <details key={q.id} className="bg-white/80 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 font-mono text-xs space-y-2">
+                <summary className="cursor-pointer font-bold text-sky-600 dark:text-blue-400 flex justify-between items-center">
+                  <span>❯ {q.title}</span>
+                  <span className="text-[10px] text-zinc-500 dark:text-zinc-500">{new Date(q.createdAt).toLocaleString()}</span>
+                </summary>
+                <div className="mt-3 pt-3 border-t border-zinc-200 dark:border-zinc-800 space-y-2">
+                  <div>
+                    <p className="text-zinc-400 uppercase tracking-wider text-[10px] mb-1">Consulta</p>
+                    <pre className="bg-zinc-950 dark:bg-zinc-950/80 border border-zinc-200 dark:border-zinc-800 rounded p-2 text-zinc-300 whitespace-pre-wrap">{q.rawQuery}</pre>
+                  </div>
+                  {q.optimizedQuery && (
+                    <div>
+                      <p className="text-zinc-400 uppercase tracking-wider text-[10px] mb-1">Optimizada</p>
+                      <pre className="bg-zinc-950 dark:bg-zinc-950/80 border border-zinc-200 dark:border-zinc-800 rounded p-2 text-emerald-400 whitespace-pre-wrap">{q.optimizedQuery}</pre>
+                    </div>
+                  )}
+                  {q.executionTimeMs != null && (
+                    <p className="text-[10px] text-zinc-400">Tiempo de ejecución: {q.executionTimeMs} ms</p>
+                  )}
+                </div>
+              </details>
+            ))
+          )}
+        </div>
+      )}
+
+      {!loading && !error && activeTab === 'audit' && (
+        <div className="space-y-6">
+          <div>
+            <h3 className="font-mono text-sm font-bold text-zinc-700 dark:text-zinc-200 mb-2">Eventos de Auditoría</h3>
+            {auditEvents.length === 0 ? (
+              <p className="font-mono text-xs text-zinc-500 dark:text-zinc-500">No hay eventos de auditoría.</p>
+            ) : (
+              <div className="space-y-2">
+                {auditEvents.map((ev) => (
+                  <div key={ev.id} className="bg-white/80 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-lg p-3 font-mono text-xs">
+                    <div className="flex justify-between items-center gap-2">
+                      <span className="text-amber-600 dark:text-emerald-400 font-bold">{ev.eventType}</span>
+                      <span className="text-[10px] text-zinc-500 dark:text-zinc-500">{new Date(ev.createdAt).toLocaleString()}</span>
+                    </div>
+                    <p className="text-zinc-500 dark:text-zinc-400 mt-1">
+                      {ev.entityType} · {ev.entityId}
+                      {ev.projectId ? ` · proyecto: ${ev.projectId}` : ''}
+                    </p>
+                    {Object.keys(ev.details).length > 0 && (
+                      <pre className="mt-1 bg-zinc-950 dark:bg-zinc-950/80 border border-zinc-200 dark:border-zinc-800 rounded p-2 text-zinc-400 whitespace-pre-wrap overflow-x-auto">
+                        {JSON.stringify(ev.details, null, 2)}
+                      </pre>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <h3 className="font-mono text-sm font-bold text-zinc-700 dark:text-zinc-200 mb-2">Logs del Sistema</h3>
+            {systemLogs.length === 0 ? (
+              <p className="font-mono text-xs text-zinc-500 dark:text-zinc-500">No hay logs del sistema.</p>
+            ) : (
+              <div className="space-y-2">
+                {systemLogs.map((log) => (
+                  <div key={log.id} className="bg-white/80 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-lg p-3 font-mono text-xs">
+                    <div className="flex justify-between items-center gap-2">
+                      <span className={`font-bold ${
+                        log.level === 'error' ? 'text-rose-500' : log.level === 'warn' ? 'text-amber-500' : 'text-sky-600 dark:text-blue-400'
+                      }`}>
+                        [{log.level.toUpperCase()}]
+                      </span>
+                      <span className="text-[10px] text-zinc-500 dark:text-zinc-500">{new Date(log.createdAt).toLocaleString()}</span>
+                    </div>
+                    <p className="text-zinc-700 dark:text-zinc-300 mt-1">
+                      <span className="text-zinc-400">{log.source}:</span> {log.message}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

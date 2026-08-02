@@ -1,25 +1,20 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { ChatMessage } from '../types';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { ChatMessage, ProjectInfo } from '../types';
 import { streamChatCompletion } from '../services/ollama';
-import { parseAndSaveMemoryJson, getGraphNodes, getTaskLogs } from '../services/memoryDb';
+import { parseAndSaveMemoryJson } from '../services/memoryDb';
+import { fetchGraphNodes, fetchTaskLogs, saveProjectQuery, fetchProjectFiles, fetchFileContent, indexProjectFiles } from '../services/apiDb';
 import { executeAllActions, formatActionResult } from '../services/fileActions';
-import { Send, Bot, User, Code, Loader2, Plus, AlertTriangle, CheckCircle, XCircle, FileCode } from 'lucide-react';
+import { Send, Bot, User, Code, Loader2, Plus, AlertTriangle, CheckCircle, XCircle, FileCode, Trash2, RefreshCw } from 'lucide-react';
 import { approvalSystem, ApprovalRequest } from '../services/approvalSystem';
 import { fileReferenceSystem } from '../services/fileReference';
-import { saveQueryLog } from '../services/apiDb';
+import { useChatStore } from '../store/chatStore';
+import { FileAutocomplete } from '../components/FileAutocomplete';
 
 interface Props {
   selectedModel: string;
-  projectInfo: { name: string; path: string };
+  projectInfo: ProjectInfo;
   projectContext: string;
   setProjectContext: (ctx: string) => void;
-}
-
-interface ChatSession {
-  id: string;
-  title: string;
-  messages: ChatMessage[];
-  createdAt: string;
 }
 
 interface ActionExecution {
@@ -29,42 +24,59 @@ interface ActionExecution {
 }
 
 export const ChatView: React.FC<Props> = ({ selectedModel, projectInfo, projectContext, setProjectContext }) => {
-  const [sessions, setSessions] = useState<ChatSession[]>([]);
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
   const [executingActions, setExecutingActions] = useState(false);
   const [actionResults, setActionResults] = useState<ActionExecution[]>([]);
+  const [projectFiles, setProjectFiles] = useState<string[]>([]);
+  const [indexingFiles, setIndexingFiles] = useState(false);
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
-  const currentSession = sessions.find(s => s.id === currentSessionId);
-  const messages = currentSession?.messages || [];
+  const {
+    sessions,
+    messagesBySession,
+    currentSessionId,
+    loadSessions,
+    createSession,
+    switchSession,
+    removeSession,
+    setMessages,
+    persistMessage,
+  } = useChatStore();
 
-  // Setup approval system callback
+  const messages = currentSessionId ? messagesBySession[currentSessionId] ?? [] : [];
+
+  // Load persisted sessions from SQLite on mount / project change
   useEffect(() => {
-    approvalSystem.setCallback(async (request) => {
-      // Add to pending approvals
-      setPendingApprovals(prev => [...prev, request]);
-      
-      // Return a promise that waits for user decision
-      return new Promise((resolve) => {
-        (window as any).__approvalResolve = resolve;
-      });
-    });
+    loadSessions(projectInfo.id);
+  }, [loadSessions, projectInfo.id]);
+
+  // Load project files from the backend index (Fase 2.4)
+  const loadProjectFiles = useCallback(async () => {
+    if (!projectInfo.id) return;
+    try {
+      const files = await fetchProjectFiles(projectInfo.id);
+      const paths = files.map((f) => f.relativePath);
+      setProjectFiles(paths);
+      fileReferenceSystem.setProjectFiles(projectInfo.name, paths);
+    } catch (err) {
+      console.error('Error loading project files:', err);
+      setProjectFiles([]);
+    }
+  }, [projectInfo.id, projectInfo.name]);
+
+  useEffect(() => {
+    loadProjectFiles();
+  }, [loadProjectFiles]);
+
+  // Subscribe to approval system pending requests
+  useEffect(() => {
+    return approvalSystem.subscribe(setPendingApprovals);
   }, []);
 
   const handleApprovalDecision = (requestId: string, decision: 'approved' | 'rejected' | 'alternative', selectedAlternative?: number) => {
-    const resolve = (window as any).__approvalResolve;
-    if (resolve) {
-      resolve({
-        requestId,
-        decision,
-        selectedAlternative,
-      });
-      (window as any).__approvalResolve = null;
-    }
-    setPendingApprovals(prev => prev.filter(p => p.id !== requestId));
+    approvalSystem.resolveApproval(requestId, decision, selectedAlternative);
   };
 
   useEffect(() => {
@@ -72,21 +84,28 @@ export const ChatView: React.FC<Props> = ({ selectedModel, projectInfo, projectC
   }, [messages, isStreaming, executingActions]);
 
   const createNewChat = () => {
-    const newSession: ChatSession = {
-      id: Date.now().toString(),
-      title: 'Nuevo Chat',
-      messages: [],
-      createdAt: new Date().toISOString(),
-    };
-    setSessions([newSession, ...sessions]);
-    setCurrentSessionId(newSession.id);
+    createSession('Nuevo Chat', projectInfo.id, selectedModel);
   };
 
-  const updateCurrentSession = (updatedMessages: ChatMessage[]) => {
-    if (!currentSessionId) return;
-    setSessions(sessions.map(s => 
-      s.id === currentSessionId ? { ...s, messages: updatedMessages } : s
-    ));
+  const handleReindexFiles = async () => {
+    if (!projectInfo.id || indexingFiles) return;
+    setIndexingFiles(true);
+    try {
+      await indexProjectFiles(projectInfo.id);
+      await loadProjectFiles();
+    } catch (err) {
+      console.error('Error reindexing project files:', err);
+    } finally {
+      setIndexingFiles(false);
+    }
+  };
+
+  const handleSwitchSession = async (sessionId: string) => {
+    await switchSession(sessionId);
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    await removeSession(sessionId);
   };
 
   const handleSend = async () => {
@@ -94,29 +113,46 @@ export const ChatView: React.FC<Props> = ({ selectedModel, projectInfo, projectC
     if (!selectedModel || isStreaming) return;
 
     // Create a new session if none exists
-    if (!currentSessionId) {
-      const newSession: ChatSession = {
-        id: Date.now().toString(),
-        title: input.slice(0, 30) + (input.length > 30 ? '...' : ''),
-        messages: [],
-        createdAt: new Date().toISOString(),
-      };
-      setSessions([newSession, ...sessions]);
-      setCurrentSessionId(newSession.id);
+    let sessionId = currentSessionId;
+    if (!sessionId) {
+      const created = await createSession(
+        input.slice(0, 30) + (input.length > 30 ? '...' : ''),
+        projectInfo.id,
+        selectedModel
+      );
+      sessionId = created?.id ?? null;
+      if (!sessionId) return;
     }
 
-    // Process file references (using $ syntax)
+    const sessionMessages = messagesBySession[sessionId] ?? [];
+
+    // Process file references (using $ syntax) — carga contenido real desde el índice del backend
+    const { references } = fileReferenceSystem.parseFileReferences(input);
+    if (projectInfo.id && references.length > 0) {
+      for (const ref of references) {
+        try {
+          const file = await fetchFileContent(projectInfo.id, ref);
+          fileReferenceSystem.setFileContent(file.path, file.content);
+        } catch (err) {
+          console.warn(`No se pudo cargar "${ref}":`, err);
+        }
+      }
+    }
     const { enrichedMessage, fileContents } = await fileReferenceSystem.enrichMessageWithFiles(input, projectInfo.name);
-    
+
     const userMsg: ChatMessage = { role: 'user', content: enrichedMessage };
-    const newMessages = [...messages, userMsg];
-    updateCurrentSession(newMessages);
+    const newMessages = [...sessionMessages, userMsg];
+    setMessages(sessionId, newMessages);
     setInput('');
     setIsStreaming(true);
 
-    // Obtener contexto de memoria desde la base de datos local
-    const graphNodes = getGraphNodes(projectInfo.name);
-    const taskLogs = getTaskLogs(projectInfo.name);
+    // Persist the user message
+    const userMessageId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    await persistMessage(sessionId, userMsg, userMessageId);
+
+    // Obtener contexto de memoria desde la base de datos SQLite
+    const graphNodes = await fetchGraphNodes(projectInfo.name).catch(() => []);
+    const taskLogs = await fetchTaskLogs(projectInfo.name).catch(() => []);
 
     let memoryContextStr = '=== MEMORIA DE GRAFO ===\n';
     graphNodes.forEach((n) => {
@@ -174,8 +210,9 @@ INSTRUCCIÓN: Cuando el usuario use el signo $ para referirse a archivos (ej: $a
     };
 
     let assistantContent = '';
+    const assistantMessageId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const messagesWithAssistant = [...newMessages, { role: 'assistant' as const, content: '' }];
-    updateCurrentSession(messagesWithAssistant);
+    setMessages(sessionId, messagesWithAssistant);
 
     try {
       await streamChatCompletion(
@@ -185,7 +222,7 @@ INSTRUCCIÓN: Cuando el usuario use el signo $ para referirse a archivos (ej: $a
           assistantContent += chunk;
           const updated = [...messagesWithAssistant];
           updated[updated.length - 1] = { role: 'assistant', content: assistantContent };
-          updateCurrentSession(updated);
+          setMessages(sessionId, updated);
         }
       );
 
@@ -194,16 +231,14 @@ INSTRUCCIÓN: Cuando el usuario use el signo $ para referirse a archivos (ej: $a
       if (projectPath) {
         setExecutingActions(true);
         const { cleanResponse, results } = await executeAllActions(assistantContent, projectPath);
-        
+
         if (results.length > 0) {
-          // Build action results summary
           const actionSummaries = results.map((r, i) => {
             const summary = formatActionResult(r.action, r.result);
             return { index: i, summary, success: r.result.success };
           });
           setActionResults(actionSummaries);
 
-          // Append action results to the assistant message
           let actionResultsText = '\n\n---\n### 📋 Resultados de acciones ejecutadas:\n\n';
           actionSummaries.forEach((s) => {
             actionResultsText += s.summary + '\n\n';
@@ -213,16 +248,26 @@ INSTRUCCIÓN: Cuando el usuario use el signo $ para referirse a archivos (ej: $a
         setExecutingActions(false);
       }
 
-      // Update the final message with action results
       const updated = [...messagesWithAssistant];
       updated[updated.length - 1] = { role: 'assistant', content: finalContent };
-      updateCurrentSession(updated);
+      setMessages(sessionId, updated);
+
+      await persistMessage(sessionId, { role: 'assistant', content: finalContent }, assistantMessageId);
 
       // Parsear si el modelo emitió actualizaciones de memoria
-      parseAndSaveMemoryJson(projectInfo.name, finalContent);
-      
-      // Guardar la consulta en la base de datos como markdown
-      await saveQueryLog(projectInfo.name, input, finalContent);
+      await parseAndSaveMemoryJson(projectInfo.name, finalContent);
+
+      // Registrar la consulta en project_queries (historial de consultas)
+      try {
+        await saveProjectQuery({
+          projectName: projectInfo.name,
+          title: `Consulta: ${input.slice(0, 50)}${input.length > 50 ? '...' : ''}`,
+          rawQuery: input,
+          optimizedQuery: finalContent,
+        });
+      } catch (error) {
+        console.error('Error saving project query:', error);
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -238,13 +283,39 @@ INSTRUCCIÓN: Cuando el usuario use el signo $ para referirse a archivos (ej: $a
           <h1 className="text-xl font-mono font-bold text-zinc-800 dark:text-zinc-100">💬 Chat Contextual del Proyecto</h1>
           <p className="text-xs text-zinc-500 dark:text-zinc-400">Inyección de código e historial de memoria activo</p>
         </div>
-        <button
-          onClick={createNewChat}
-          className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-emerald-500/10 border border-amber-300 dark:border-emerald-500/30 text-amber-600 dark:text-emerald-400 hover:bg-amber-100 dark:hover:bg-emerald-500/20 rounded-lg transition font-mono text-xs"
-        >
-          <Plus className="w-4 h-4" />
-          <span className="font-semibold">Nuevo Chat</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {sessions.length > 0 && (
+            <div className="flex items-center gap-1">
+              <select
+                value={currentSessionId ?? ''}
+                onChange={(e) => e.target.value && handleSwitchSession(e.target.value)}
+                className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2 font-mono text-xs text-zinc-700 dark:text-zinc-300 focus:outline-none max-w-[220px]"
+              >
+                {sessions.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.title || 'Nuevo Chat'}
+                  </option>
+                ))}
+              </select>
+              {currentSessionId && (
+                <button
+                  onClick={() => handleDeleteSession(currentSessionId)}
+                  className="p-2 text-zinc-400 hover:text-rose-500 dark:hover:text-rose-400 rounded transition"
+                  title="Eliminar sesión actual"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          )}
+          <button
+            onClick={createNewChat}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-emerald-500/10 border border-amber-300 dark:border-emerald-500/30 text-amber-600 dark:text-emerald-400 hover:bg-amber-100 dark:hover:bg-emerald-500/20 rounded-lg transition font-mono text-xs"
+          >
+            <Plus className="w-4 h-4" />
+            <span className="font-semibold">Nuevo Chat</span>
+          </button>
+        </div>
       </header>
 
       {/* Project path indicator */}
@@ -283,7 +354,7 @@ INSTRUCCIÓN: Cuando el usuario use el signo $ para referirse a archivos (ej: $a
                 <div className="flex-1">
                   <h3 className="text-sm font-mono font-bold text-amber-700 dark:text-amber-300 mb-1">{approval.title}</h3>
                   <p className="text-xs font-mono text-zinc-500 dark:text-zinc-400 mb-2">{approval.description}</p>
-                  
+
                   {approval.details.files && approval.details.files.length > 0 && (
                     <div className="mb-2">
                       <p className="text-[10px] font-mono text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mb-1">Archivos afectados:</p>
@@ -372,14 +443,26 @@ INSTRUCCIÓN: Cuando el usuario use el signo $ para referirse a archivos (ej: $a
 
       {/* Input de Chat */}
       <div className="mt-4 shrink-0 flex gap-2">
-        <input
-          type="text"
+        <FileAutocomplete
+          files={projectFiles}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+          onChange={setInput}
+          triggerChar="$"
+          disabled={isStreaming}
+          onEnter={handleSend}
           placeholder="Escribe una consulta sobre la arquitectura o código... Usa $nombre-archivo para referenciar archivos"
           className="flex-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 font-mono text-xs text-zinc-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 dark:focus:border-emerald-500/50"
         />
+        {projectInfo.id && (
+          <button
+            onClick={handleReindexFiles}
+            disabled={indexingFiles}
+            title="Reindexar archivos del proyecto"
+            className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-emerald-400 hover:border-amber-300 dark:hover:border-emerald-500/50 px-3 rounded-xl transition flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <RefreshCw className={`w-4 h-4 ${indexingFiles ? 'animate-spin' : ''}`} />
+          </button>
+        )}
         <button
           onClick={handleSend}
           disabled={isStreaming || !input.trim() || !selectedModel}

@@ -38,8 +38,8 @@ export const startOllamaDocker = async (): Promise<{ status: string; message: st
   try {
     const res = await fetch(`${API_BASE}/docker/ollama/start`, { method: 'POST' });
     return await res.json();
-  } catch (error: any) {
-    throw new Error(error.message || 'Failed to start Ollama');
+  } catch (error: unknown) {
+    throw new Error(error instanceof Error ? error.message : 'Failed to start Ollama');
   }
 };
 
@@ -47,8 +47,8 @@ export const stopOllamaDocker = async (): Promise<{ status: string; message: str
   try {
     const res = await fetch(`${API_BASE}/docker/ollama/stop`, { method: 'POST' });
     return await res.json();
-  } catch (error: any) {
-    throw new Error(error.message || 'Failed to stop Ollama');
+  } catch (error: unknown) {
+    throw new Error(error instanceof Error ? error.message : 'Failed to stop Ollama');
   }
 };
 
@@ -56,8 +56,8 @@ export const restartOllamaDocker = async (): Promise<{ status: string; message: 
   try {
     const res = await fetch(`${API_BASE}/docker/ollama/restart`, { method: 'POST' });
     return await res.json();
-  } catch (error: any) {
-    throw new Error(error.message || 'Failed to restart Ollama');
+  } catch (error: unknown) {
+    throw new Error(error instanceof Error ? error.message : 'Failed to restart Ollama');
   }
 };
 

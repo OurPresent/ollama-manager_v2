@@ -2,11 +2,25 @@ import React, { useState, useEffect, useRef } from 'react';
 
 interface FileAutocompleteProps {
   files: string[];
-  onSelect: (file: string) => void;
+  value: string;
+  onChange: (value: string) => void;
   triggerChar: string;
+  placeholder?: string;
+  className?: string;
+  disabled?: boolean;
+  onEnter?: () => void;
 }
 
-export const FileAutocomplete: React.FC<FileAutocompleteProps> = ({ files, onSelect, triggerChar }) => {
+export const FileAutocomplete: React.FC<FileAutocompleteProps> = ({
+  files,
+  value,
+  onChange,
+  triggerChar,
+  placeholder,
+  className,
+  disabled,
+  onEnter,
+}) => {
   const [isOpen, setIsOpen] = useState(false);
   const [filteredFiles, setFilteredFiles] = useState<string[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -14,29 +28,31 @@ export const FileAutocomplete: React.FC<FileAutocompleteProps> = ({ files, onSel
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    // Sort files alphabetically
-    const sortedFiles = [...files].sort((a, b) => a.localeCompare(b));
-    setFilteredFiles(sortedFiles);
+    setFilteredFiles([...files].sort((a, b) => a.localeCompare(b)));
   }, [files]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
+    const nextValue = e.target.value;
+    onChange(nextValue);
+
     const cursorPos = e.target.selectionStart || 0;
-    
-    // Find the last $ trigger before cursor
-    const lastTrigger = value.lastIndexOf(triggerChar, cursorPos);
-    
+    const lastTrigger = nextValue.lastIndexOf(triggerChar, cursorPos - 1);
+
     if (lastTrigger !== -1) {
-      const searchTerm = value.slice(lastTrigger + 1, cursorPos);
+      const searchTerm = nextValue.slice(lastTrigger + 1, cursorPos);
+      if (searchTerm.includes(' ')) {
+        setIsOpen(false);
+        setTriggerPosition(null);
+        return;
+      }
       setTriggerPosition(lastTrigger);
-      
-      // Filter files based on search term
+
       const filtered = files
-        .filter(file => file.toLowerCase().includes(searchTerm.toLowerCase()))
+        .filter((file) => file.toLowerCase().includes(searchTerm.toLowerCase()))
         .sort((a, b) => a.localeCompare(b));
-      
+
       setFilteredFiles(filtered);
-      setIsOpen(filtered.length > 0 && searchTerm.length >= 0);
+      setIsOpen(filtered.length > 0);
       setSelectedIndex(0);
     } else {
       setIsOpen(false);
@@ -44,68 +60,72 @@ export const FileAutocomplete: React.FC<FileAutocompleteProps> = ({ files, onSel
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (!isOpen) return;
-
-    switch (e.key) {
-      case 'ArrowDown':
-        e.preventDefault();
-        setSelectedIndex(prev => (prev + 1) % filteredFiles.length);
-        break;
-      case 'ArrowUp':
-        e.preventDefault();
-        setSelectedIndex(prev => (prev - 1 + filteredFiles.length) % filteredFiles.length);
-        break;
-      case 'Tab':
-      case 'Enter':
-        e.preventDefault();
-        if (filteredFiles[selectedIndex]) {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (isOpen && filteredFiles.length > 0) {
+      switch (e.key) {
+        case 'ArrowDown':
+          e.preventDefault();
+          setSelectedIndex((prev) => (prev + 1) % filteredFiles.length);
+          return;
+        case 'ArrowUp':
+          e.preventDefault();
+          setSelectedIndex((prev) => (prev - 1 + filteredFiles.length) % filteredFiles.length);
+          return;
+        case 'Tab':
+        case 'Enter':
+          e.preventDefault();
           selectFile(filteredFiles[selectedIndex]);
-        }
-        break;
-      case 'Escape':
-        setIsOpen(false);
-        break;
+          return;
+        case 'Escape':
+          setIsOpen(false);
+          setTriggerPosition(null);
+          return;
+      }
+    }
+
+    if (e.key === 'Enter' && !isOpen && onEnter) {
+      onEnter();
     }
   };
 
   const selectFile = (file: string) => {
-    if (triggerPosition !== null && inputRef.current) {
-      const currentValue = inputRef.current.value;
-      const beforeTrigger = currentValue.slice(0, triggerPosition);
-      const afterCursor = currentValue.slice(inputRef.current.selectionStart || 0);
-      const newValue = `${beforeTrigger}$${file} ${afterCursor}`;
-      
-      onSelect(newValue);
-      setIsOpen(false);
-      setTriggerPosition(null);
+    if (triggerPosition !== null) {
+      const beforeTrigger = value.slice(0, triggerPosition);
+      const afterCursor = value.slice(inputRef.current?.selectionStart || value.length);
+      onChange(`${beforeTrigger}${triggerChar}${file} ${afterCursor}`);
     }
+    setIsOpen(false);
+    setTriggerPosition(null);
+    inputRef.current?.focus();
   };
 
   return (
-    <div className="relative">
+    <div className="relative flex-1">
       <input
         ref={inputRef}
         type="text"
+        value={value}
         onChange={handleInputChange}
         onKeyDown={handleKeyDown}
-        placeholder="Escribe una consulta... Usa $ para autocompletar archivos"
-        className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 font-mono text-xs text-zinc-100 focus:outline-none focus:border-emerald-500/50"
+        disabled={disabled}
+        placeholder={placeholder}
+        className={className}
       />
-      
+
       {isOpen && filteredFiles.length > 0 && (
-        <div className="absolute z-50 w-full mt-1 bg-zinc-900 border border-zinc-800 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+        <div className="absolute z-50 w-full mt-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-xl max-h-60 overflow-y-auto">
           {filteredFiles.map((file, index) => (
             <button
               key={file}
               onClick={() => selectFile(file)}
               className={`w-full text-left px-3 py-2 text-xs font-mono transition ${
                 index === selectedIndex
-                  ? 'bg-emerald-500/20 text-emerald-400'
-                  : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+                  ? 'bg-amber-500/20 dark:bg-emerald-500/20 text-amber-700 dark:text-emerald-400'
+                  : 'text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-800 dark:hover:text-zinc-200'
               }`}
             >
-              {triggerChar}{file}
+              {triggerChar}
+              {file}
             </button>
           ))}
         </div>

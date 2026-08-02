@@ -12,7 +12,7 @@ interface ActionData {
 
 interface ActionResult {
   success: boolean;
-  result?: string | string[] | Record<string, any>;
+  result?: string | string[] | Record<string, unknown>;
   error?: string;
 }
 
@@ -75,8 +75,8 @@ export async function executeAction(
     }
 
     return await res.json();
-  } catch (error: any) {
-    return { success: false, error: `Connection error: ${error.message}` };
+  } catch (error: unknown) {
+    return { success: false, error: `Connection error: ${error instanceof Error ? error.message : String(error)}` };
   }
 }
 
