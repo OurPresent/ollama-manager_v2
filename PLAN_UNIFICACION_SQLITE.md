@@ -619,8 +619,10 @@ Completado:
 
 Pendiente a futuro:
 
-- [ ] Persistir `plans`, `plan_runs` y `agent_runs` como tablas de ejecucion (hoy el pipeline persiste salidas en `task_logs` y grafo).
-- [ ] Tablas `project_snapshots`, `project_context_blocks` y generacion automatica de contexto estructural.
-- [ ] Persistir aprobaciones en `approval_requests`/`approval_decisions` y disparar `requestApproval()` desde acciones sensibles.
-- [ ] Versionado de prompts de agentes (`agent_versions`, `agent_runs`).
-- [ ] Endpoint de resolucion de referencias batch (`resolve-references`).
+- [x] Persistir `plans`, `plan_runs` y `agent_runs` como tablas de ejecucion (hoy el pipeline persiste salidas en `task_logs` y grafo).
+- [x] Tablas `project_snapshots`, `project_context_blocks` y generacion automatica de contexto estructural.
+- [x] Persistir aprobaciones en `approval_requests`/`approval_decisions` y disparar `requestApproval()` desde acciones sensibles.
+- [x] Versionado de prompts de agentes (`agent_versions`, `agent_runs`).
+- [x] Endpoint de resolucion de referencias batch (`resolve-references`).
+- [x] Eliminado `localStorage` para memoria del dominio (nodos/bitacoras solo via API + SQLite; `localStorage` queda solo para el tema de UI).
+- [x] Seccion "Ollama & Docker" simplificada a "Ollama": iniciar/detener servicio y modelo, selector de modelo por agente (`agents.model`), y los planes levantan el LLM asignado por agente y lo detienen al finalizar si no es el global.
