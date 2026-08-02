@@ -2,10 +2,12 @@ import { Router } from 'express';
 import { z } from 'zod';
 import {
   listActiveAgents,
+  listAllAgents,
   getAgentById,
   insertAgent,
   updateAgent,
   deactivateAgent,
+  setAgentActive,
   listAgentVersions,
 } from '../repositories/agentRepository';
 import type { AgentRow } from '../core/types';
@@ -30,6 +32,7 @@ const mapAgentRow = (row: AgentRow) => ({
   systemPrompt: row.system_prompt,
   model: row.model || '',
   isBuiltin: Boolean(row.is_builtin),
+  isActive: Boolean(row.is_active),
   status: 'idle' as const,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -41,6 +44,34 @@ router.get('/', async (_req, res) => {
     res.json(rows.map(mapAgentRow));
   } catch (error) {
     console.error('Error fetching agents:', error);
+    handleRouteError(error, res);
+  }
+});
+
+router.get('/all', async (_req, res) => {
+  try {
+    const rows = await listAllAgents();
+    res.json(rows.map(mapAgentRow));
+  } catch (error) {
+    console.error('Error fetching all agents:', error);
+    handleRouteError(error, res);
+  }
+});
+
+router.patch('/:id/active', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const parsed = z.object({ active: z.boolean() }).parse(req.body ?? {});
+    const existing = await getAgentById(id);
+    if (!existing) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+    await setAgentActive(id, parsed.active);
+    await writeAuditEvent('agent.active.toggle', 'agent', id, null, { active: parsed.active });
+    res.json({ status: 'ok', id, active: parsed.active });
+  } catch (error) {
+    console.error('Error toggling agent:', error);
     handleRouteError(error, res);
   }
 });

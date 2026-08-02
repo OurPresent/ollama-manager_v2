@@ -143,6 +143,12 @@ export const listActiveAgents = async (): Promise<AgentRow[]> => {
   )) as unknown as AgentRow[];
 };
 
+export const listAllAgents = async (): Promise<AgentRow[]> => {
+  return (await queryAll(
+    'SELECT * FROM agents ORDER BY is_active DESC, is_builtin DESC, created_at ASC'
+  )) as unknown as AgentRow[];
+};
+
 export const getAgentById = async (id: string): Promise<AgentRow | null> => {
   return (await queryOne('SELECT * FROM agents WHERE id = ? LIMIT 1', [id])) as unknown as AgentRow | null;
 };
@@ -193,5 +199,14 @@ export const deactivateAgent = async (id: string): Promise<void> => {
      SET is_active = 0, updated_at = CURRENT_TIMESTAMP
      WHERE id = ?`,
     [id]
+  );
+};
+
+export const setAgentActive = async (id: string, active: boolean): Promise<void> => {
+  await execute(
+    `UPDATE agents
+     SET is_active = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [active ? 1 : 0, id]
   );
 };

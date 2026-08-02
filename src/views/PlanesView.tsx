@@ -3,28 +3,73 @@ import { streamChatCompletion, loadOllamaModel, stopOllamaModel } from '../servi
 import { parseAndSaveMemoryJson } from '../services/memoryDb';
 import { executeAllActions, formatActionResult } from '../services/fileActions';
 import { saveTaskLogToSqlite, createPlan, startPlanRun, finishPlanRun, startAgentRun, finishAgentRun } from '../services/apiDb';
-import { fetchAgents } from '../services/systemApi';
 import type { PersistedAgent } from '../types';
-import { Play, CheckCircle2, Loader2, Sparkles, FileCode, Cpu } from 'lucide-react';
+import { Play, CheckCircle2, Loader2, Sparkles, FileCode, Cpu, ChevronUp, ChevronDown, Users } from 'lucide-react';
 
 interface Props {
   selectedModel: string;
   projectInfo: { id?: string; name: string; path: string };
   projectContext: string;
+  agents: PersistedAgent[];
 }
 
-export const PlanesView: React.FC<Props> = ({ selectedModel, projectInfo, projectContext }) => {
+const ROLE_PRIORITY = [
+  'Project Manager',
+  'Backend Developer',
+  'Frontend Developer',
+  'Database Administrator',
+  'Quality Assurance',
+  'DevOps',
+];
+
+const rolePriority = (role: string): number => {
+  const idx = ROLE_PRIORITY.indexOf(role);
+  return idx === -1 ? 999 : idx;
+};
+
+export const PlanesView: React.FC<Props> = ({ selectedModel, projectInfo, projectContext, agents }) => {
   const [goal, setGoal] = useState('');
   const [plan, setPlan] = useState('');
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
   const [isRunningPipeline, setIsRunningPipeline] = useState(false);
   const [agentOutputs, setAgentOutputs] = useState<{ role: string; output: string; model?: string }[]>([]);
   const [executingActions, setExecutingActions] = useState(false);
-  const [agents, setAgents] = useState<PersistedAgent[]>([]);
+  const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
+
+  const activeAgents = agents.filter((a) => a.isActive !== false);
+  const orderedByRole = [...activeAgents].sort((a, b) => rolePriority(a.role) - rolePriority(b.role));
+  const byId = new Map(activeAgents.map((a) => [a.id, a]));
+  const pipelineAgents = selectedAgentIds
+    .map((id) => byId.get(id))
+    .filter((a): a is PersistedAgent => Boolean(a));
 
   useEffect(() => {
-    fetchAgents().then(setAgents).catch(() => setAgents([]));
-  }, []);
+    setSelectedAgentIds((prev) => {
+      const available = new Set(agents.map((a) => a.id));
+      const kept = prev.filter((id) => available.has(id));
+      if (kept.length > 0) return kept;
+      return [...agents]
+        .filter((a) => a.isActive !== false)
+        .sort((a, b) => rolePriority(a.role) - rolePriority(b.role))
+        .map((a) => a.id);
+    });
+  }, [agents]);
+
+  const toggleSelectAgent = (id: string) => {
+    setSelectedAgentIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const moveAgent = (index: number, direction: -1 | 1) => {
+    setSelectedAgentIds((prev) => {
+      const next = [...prev];
+      const target = index + direction;
+      if (target < 0 || target >= next.length) return prev;
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  };
 
   const projectPath = projectInfo.path || projectInfo.name;
 
@@ -110,8 +155,14 @@ Ejemplo de uso:
     setIsRunningPipeline(true);
     setAgentOutputs([]);
 
-    if (agents.length === 0) {
-      setAgentOutputs([{ role: 'Pipeline', output: 'No hay agentes configurados en la base de datos. Créalos en la vista Agentes.' }]);
+    if (activeAgents.length === 0) {
+      setAgentOutputs([{ role: 'Pipeline', output: 'No hay agentes activos en la base de datos. Actívalos en la vista Agentes.' }]);
+      setIsRunningPipeline(false);
+      return;
+    }
+
+    if (pipelineAgents.length === 0) {
+      setAgentOutputs([{ role: 'Pipeline', output: 'No hay agentes seleccionados. Selecciona al menos uno en el panel de agentes.' }]);
       setIsRunningPipeline(false);
       return;
     }
@@ -135,7 +186,7 @@ Ejemplo de uso:
 
     let prevOutputs: string[] = [];
 
-    for (const role of agents) {
+    for (const role of pipelineAgents) {
       const agentModel = role.model || selectedModel;
       const promptAcc = `PLAN TÉCNICO:\n${plan}\n\nAVANCES PREVIOS DE OTROS AGENTES:\n${prevOutputs.slice(-2).join('\n---\n')}`;
       let currentOutput = '';
@@ -326,6 +377,86 @@ Ejemplo de uso:
               className="w-full h-40 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg p-3 font-mono text-xs text-zinc-700 dark:text-zinc-300 focus:outline-none"
             />
           </div>
+        )}
+      </section>
+
+      {/* 1.5 Selección de Agentes del Pipeline */}
+      <section className="bg-white/80 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-xl p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-mono font-semibold text-amber-600 dark:text-emerald-400 flex items-center gap-2">
+            <Users className="w-5 h-5" /> Selección de Agentes del Pipeline
+          </h2>
+          <span className="text-xs font-mono text-zinc-500 dark:text-zinc-400">
+            {pipelineAgents.length} / {activeAgents.length} seleccionados
+          </span>
+        </div>
+
+        {activeAgents.length === 0 ? (
+          <p className="text-xs font-mono text-rose-500">
+            No hay agentes activos. Actívalos desde la vista Agentes para poder orquestarlos.
+          </p>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {orderedByRole.map((agent) => {
+                const selected = selectedAgentIds.includes(agent.id);
+                return (
+                  <button
+                    key={agent.id}
+                    onClick={() => toggleSelectAgent(agent.id)}
+                    className={`flex items-start gap-3 p-3 rounded-lg border text-left transition ${
+                      selected
+                        ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/30'
+                        : 'bg-zinc-50 dark:bg-zinc-950/60 border-zinc-200 dark:border-zinc-800 hover:border-amber-300 dark:hover:border-emerald-500/30'
+                    }`}
+                  >
+                    <input type="checkbox" checked={selected} readOnly className="mt-0.5 accent-emerald-500" />
+                    <div className="min-w-0">
+                      <p className="text-xs font-mono font-bold text-zinc-800 dark:text-zinc-100 truncate">{agent.name}</p>
+                      <p className="text-[10px] font-mono text-zinc-500 dark:text-zinc-400 truncate">
+                        {agent.role}
+                        {agent.model ? ` · ${agent.model}` : ` · modelo global (${selectedModel || 'sin definir'})`}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {pipelineAgents.length > 0 && (
+              <div className="bg-zinc-50 dark:bg-zinc-950/60 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4">
+                <p className="text-[10px] font-mono text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-2">
+                  Orden de orquestación por funcionalidad
+                </p>
+                <ol className="space-y-1">
+                  {pipelineAgents.map((agent, idx) => (
+                    <li key={agent.id} className="flex items-center justify-between text-xs font-mono text-zinc-700 dark:text-zinc-300">
+                      <span className="truncate">
+                        <span className="text-emerald-600 dark:text-emerald-400">{idx + 1}.</span> {agent.name}
+                        <span className="text-zinc-500 dark:text-zinc-500"> ({agent.role})</span>
+                      </span>
+                      <span className="flex gap-1 shrink-0 ml-2">
+                        <button
+                          onClick={() => moveAgent(idx, -1)}
+                          disabled={idx === 0}
+                          className="p-1 rounded bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-500 hover:text-zinc-700 disabled:opacity-30"
+                        >
+                          <ChevronUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => moveAgent(idx, 1)}
+                          disabled={idx === pipelineAgents.length - 1}
+                          className="p-1 rounded bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-500 hover:text-zinc-700 disabled:opacity-30"
+                        >
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        </button>
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+          </>
         )}
       </section>
 

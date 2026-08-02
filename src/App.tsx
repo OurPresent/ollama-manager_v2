@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { ActiveView, OllamaModel, ProjectInfo } from './types';
+import { ActiveView, OllamaModel, PersistedAgent, ProjectInfo } from './types';
 import { checkOllamaStatus, fetchInstalledModels, setCachedOllamaBaseUrl } from './services/ollama';
-import { fetchActiveProject, getAppSettings, Theme } from './services/systemApi';
+import { fetchActiveProject, fetchAllAgents, getAppSettings, Theme } from './services/systemApi';
 import { fetchProjectContext } from './services/apiDb';
 import { Sidebar } from './components/Sidebar';
 import { HomeView } from './views/HomeView';
@@ -35,6 +35,7 @@ export const App: React.FC = () => {
   });
   const [projectInfo, setProjectInfo] = useState<ProjectInfo>({ name: '', path: '' });
   const [projectContext, setProjectContext] = useState<string>('// Contexto general del proyecto...');
+  const [agents, setAgents] = useState<PersistedAgent[]>([]);
 
   const refreshModels = async () => {
     const status = await checkOllamaStatus();
@@ -97,6 +98,10 @@ export const App: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    fetchAllAgents().then(setAgents).catch(() => setAgents([]));
+  }, []);
+
   return (
     <div className="flex h-screen bg-white dark:bg-zinc-950 font-sans antialiased text-zinc-800 dark:text-zinc-100 overflow-hidden">
       <Sidebar
@@ -112,7 +117,7 @@ export const App: React.FC = () => {
 
       <main className="flex-1 overflow-y-auto bg-zinc-50 dark:bg-zinc-950">
         {activeView === 'home' && (
-          <HomeView isOllamaOnline={isOllamaOnline} models={models} setActiveView={setActiveView} />
+          <HomeView isOllamaOnline={isOllamaOnline} models={models} agents={agents} setActiveView={setActiveView} />
         )}
         {activeView === 'chat' && (
           <ChatView
@@ -126,6 +131,8 @@ export const App: React.FC = () => {
           <AgentsView
             selectedModel={selectedModel}
             models={models}
+            agents={agents}
+            onAgentsChange={setAgents}
             projectInfo={projectInfo}
             projectContext={projectContext}
           />
@@ -135,6 +142,7 @@ export const App: React.FC = () => {
             selectedModel={selectedModel}
             projectInfo={projectInfo}
             projectContext={projectContext}
+            agents={agents}
           />
         )}
         {activeView === 'ollama' && <OllamaView models={models} refreshModels={refreshModels} />}

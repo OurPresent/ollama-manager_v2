@@ -59,6 +59,7 @@ export interface PersistedAgent {
   description: string;
   model?: string;
   isBuiltin?: boolean;
+  isActive?: boolean;
   status: 'idle' | 'running' | 'completed' | 'error';
   lastExecution?: string;
 }

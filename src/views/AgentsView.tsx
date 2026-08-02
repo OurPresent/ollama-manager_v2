@@ -1,18 +1,25 @@
-import React, { useEffect, useState } from 'react';
-import { Plus, Bot, Trash2, Edit2, Settings, Cpu } from 'lucide-react';
+import React, { useState } from 'react';
+import { Plus, Bot, Trash2, Edit2, Settings, Cpu, Power } from 'lucide-react';
 import { OllamaModel, PersistedAgent } from '../types';
-import { createAgent, deleteAgent, fetchAgents, updateAgent } from '../services/systemApi';
+import { createAgent, deleteAgent, fetchAllAgents, setAgentActive, updateAgent } from '../services/systemApi';
 
 interface Props {
   selectedModel: string;
   models: OllamaModel[];
+  agents: PersistedAgent[];
+  onAgentsChange: (agents: PersistedAgent[]) => void;
   projectInfo: { name: string; path: string };
   projectContext: string;
 }
 
-export const AgentsView: React.FC<Props> = ({ selectedModel, models, projectInfo: _projectInfo, projectContext: _projectContext }) => {
-  const [agents, setAgents] = useState<PersistedAgent[]>([]);
-
+export const AgentsView: React.FC<Props> = ({
+  selectedModel,
+  models,
+  agents,
+  onAgentsChange,
+  projectInfo: _projectInfo,
+  projectContext: _projectContext,
+}) => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingAgent, setEditingAgent] = useState<PersistedAgent | null>(null);
   const [formData, setFormData] = useState({
@@ -22,28 +29,29 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, models, projectInfo
     description: '',
     model: ''
   });
-  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [executionOutput] = useState<{ [key: string]: string }>({});
   const [showOutputModal, setShowOutputModal] = useState(false);
   const [currentOutput, setCurrentOutput] = useState({ agentName: '', output: '' });
 
-  const loadAgents = async () => {
-    setIsLoading(true);
-    setError('');
+  const refreshAgents = async () => {
     try {
-      const data = await fetchAgents();
-      setAgents(data);
+      const data = await fetchAllAgents();
+      onAgentsChange(data);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'No se pudieron cargar los agentes');
-    } finally {
-      setIsLoading(false);
     }
   };
 
-  useEffect(() => {
-    loadAgents();
-  }, []);
+  const handleToggleActive = async (agent: PersistedAgent) => {
+    const next = agent.isActive === false;
+    try {
+      await setAgentActive(agent.id, next);
+      await refreshAgents();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'No se pudo cambiar el estado del agente');
+    }
+  };
 
   const handleAddAgent = () => {
     setEditingAgent(null);
@@ -72,7 +80,7 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, models, projectInfo
       } else {
         await createAgent(formData);
       }
-      await loadAgents();
+      await refreshAgents();
       setShowAddModal(false);
       setFormData({ name: '', role: '', systemPrompt: '', description: '', model: '' });
       setEditingAgent(null);
@@ -84,7 +92,7 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, models, projectInfo
   const handleDeleteAgent = async (id: string) => {
     try {
       await deleteAgent(id);
-      await loadAgents();
+      await refreshAgents();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'No se pudo eliminar el agente');
     }
@@ -148,7 +156,7 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, models, projectInfo
         <div className="bg-white/80 dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4">
           <p className="text-xs font-mono text-zinc-500 dark:text-zinc-400 mb-1">Activos</p>
           <p className="text-2xl font-mono font-bold text-emerald-600 dark:text-emerald-400">
-            {agents.filter(a => a.status !== 'error').length}
+            {agents.filter(a => a.isActive !== false).length}
           </p>
         </div>
         <div className="bg-white/80 dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4">
@@ -166,16 +174,13 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, models, projectInfo
       </div>
 
       {/* Agents Grid */}
-      {isLoading ? (
-        <div className="rounded-xl border border-zinc-200 bg-white/80 p-6 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-400">
-          Cargando agentes desde SQLite...
-        </div>
-      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {agents.map((agent) => (
+        {agents.map((agent) => {
+          const isActive = agent.isActive !== false;
+          return (
           <div
             key={agent.id}
-            className="bg-white/80 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-xl p-5 space-y-4 hover:border-amber-300 dark:hover:border-zinc-700 transition"
+            className={`bg-white/80 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-xl p-5 space-y-4 hover:border-amber-300 dark:hover:border-zinc-700 transition ${!isActive ? 'opacity-60' : ''}`}
           >
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">
@@ -187,9 +192,27 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, models, projectInfo
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">{agent.role}</p>
                 </div>
               </div>
-              <div className={`flex items-center gap-1 ${getStatusColor(agent.status)}`}>
-                {getStatusIcon(agent.status)}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleToggleActive(agent)}
+                  title={isActive ? 'Desactivar agente' : 'Activar agente'}
+                  className={`relative w-10 h-5 rounded-full transition ${isActive ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-700'}`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${isActive ? 'translate-x-5' : ''}`}
+                  />
+                </button>
+                <div className={`flex items-center gap-1 ${getStatusColor(agent.status)}`}>
+                  {getStatusIcon(agent.status)}
+                </div>
               </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 text-[10px] font-mono">
+              <Power className="w-3 h-3" />
+              <span className={isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400 dark:text-zinc-500'}>
+                {isActive ? 'Activo en pipeline' : 'Desactivado (no se ejecuta en Planes)'}
+              </span>
             </div>
 
             <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">{agent.description}</p>
@@ -245,9 +268,9 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, models, projectInfo
               </button>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
-      )}
 
       {/* Output Modal */}
       {showOutputModal && (

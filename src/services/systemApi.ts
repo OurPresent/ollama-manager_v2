@@ -1,5 +1,5 @@
 import { PersistedAgent } from '../types';
-import type { ProjectDto } from '../types/dto';
+import type { ModelUsageDto, ProjectDto, SystemStatsDto } from '../types/dto';
 
 const API_BASE = '/api';
 
@@ -113,6 +113,46 @@ export const fetchAgents = async (): Promise<PersistedAgent[]> => {
     throw new Error('No se pudieron cargar los agentes');
   }
   return res.json();
+};
+
+export const fetchAllAgents = async (): Promise<PersistedAgent[]> => {
+  const res = await fetch(`${API_BASE}/agents/all`);
+  if (!res.ok) {
+    throw new Error('No se pudieron cargar los agentes');
+  }
+  return res.json();
+};
+
+export const setAgentActive = async (id: string, active: boolean): Promise<void> => {
+  const res = await fetch(`${API_BASE}/agents/${id}/active`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ active }),
+  });
+  if (!res.ok) {
+    throw new Error('No se pudo cambiar el estado del agente');
+  }
+};
+
+export const fetchSystemStats = async (): Promise<SystemStatsDto | null> => {
+  try {
+    const res = await fetch(`${API_BASE}/system/stats`);
+    if (!res.ok) return null;
+    return (await res.json()) as SystemStatsDto;
+  } catch {
+    return null;
+  }
+};
+
+export const fetchModelUsage = async (): Promise<ModelUsageDto[]> => {
+  try {
+    const res = await fetch(`${API_BASE}/system/model-usage`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
 };
 
 export type AgentPayload = Omit<PersistedAgent, 'id' | 'status' | 'lastExecution' | 'description'> & {

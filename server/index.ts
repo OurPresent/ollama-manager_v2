@@ -16,6 +16,7 @@ import { chatRouter } from './routes/chatRoutes';
 import { auditRouter } from './routes/auditRoutes';
 import { planRouter } from './routes/planRoutes';
 import { approvalRouter } from './routes/approvalRoutes';
+import { systemRouter } from './routes/systemRoutes';
 
 const app = express();
 app.use(cors());
@@ -34,6 +35,7 @@ app.use('/api/chat', chatRouter);
 app.use('/api/audit', auditRouter);
 app.use('/api/plans', planRouter);
 app.use('/api/approvals', approvalRouter);
+app.use('/api/system', systemRouter);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', service: 'ollama-manager-v2' });

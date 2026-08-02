@@ -538,6 +538,187 @@ def docker_get_info() -> dict:
     return {"success": True, "result": info}
 
 
+# ------------------------------------------------------------------
+# SYSTEM STATS (RAM / process usage)
+# ------------------------------------------------------------------
+
+def _parse_tasklist_mem(lines) -> int:
+    """Sum Working Set (KB) of processes from `tasklist /FO CSV` output."""
+    import csv
+    total = 0
+    try:
+        reader = csv.reader(lines)
+        for row in reader:
+            if len(row) >= 5 and row[0] != "Image Name":
+                mem = row[4].replace(",", "").replace(" K", "").strip()
+                if mem.isdigit():
+                    total += int(mem)
+    except Exception:
+        pass
+    return total * 1024  # KB -> bytes
+
+
+def _ollama_ram_windows() -> int:
+    """Return RAM bytes used by ollama.exe processes on Windows."""
+    try:
+        result = subprocess.run(
+            ['tasklist', '/FI', 'IMAGENAME eq ollama.exe', '/FO', 'CSV'],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return _parse_tasklist_mem(result.stdout.strip().split('\n'))
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    except Exception:
+        pass
+    return 0
+
+
+def _ollama_ram_linux() -> int:
+    """Return RAM bytes used by ollama processes on Linux (sum of VmRSS)."""
+    total = 0
+    try:
+        for pid_dir in os.listdir('/proc'):
+            if not pid_dir.isdigit():
+                continue
+            try:
+                with open(f'/proc/{pid_dir}/comm', 'r') as f:
+                    comm = f.read().strip()
+                if 'ollama' not in comm.lower():
+                    continue
+                with open(f'/proc/{pid_dir}/status', 'r') as f:
+                    for line in f:
+                        if line.startswith('VmRSS:'):
+                            total += int(line.split()[1]) * 1024  # kB -> bytes
+                            break
+            except (IOError, ValueError, OSError):
+                continue
+    except OSError:
+        pass
+    return total
+
+
+def _ollama_ram_darwin() -> int:
+    """Return RAM bytes used by ollama processes on macOS via `ps`."""
+    try:
+        result = subprocess.run(
+            ['ps', '-axo', 'rss,comm'],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            total = 0
+            for line in result.stdout.split('\n'):
+                parts = line.split()
+                if len(parts) >= 2 and 'ollama' in parts[1].lower():
+                    try:
+                        total += int(parts[0]) * 1024  # KB -> bytes
+                    except ValueError:
+                        pass
+            return total
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    return 0
+
+
+def system_stats() -> dict:
+    """Report system RAM usage (total, used, free) plus the Ollama process share."""
+    total_ram = 0
+    used_ram = 0
+    free_ram = 0
+    used_pct = 0
+    ollama_ram = 0
+
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+
+            status = MEMORYSTATUSEX()
+            status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+                total_ram = int(status.ullTotalPhys)
+                free_ram = int(status.ullAvailPhys)
+                used_ram = total_ram - free_ram
+                used_pct = round((used_ram / total_ram) * 100, 1) if total_ram else 0
+            ollama_ram = _ollama_ram_windows()
+        except Exception as e:
+            return {"success": False, "error": f"system_stats failed on Windows: {str(e)}"}
+    elif sys.platform == "darwin":
+        try:
+            result = subprocess.run(
+                ['sysctl', '-n', 'hw.memsize'],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0 and result.stdout.strip().isdigit():
+                total_ram = int(result.stdout.strip())
+            vm = subprocess.run(
+                ['vm_stat'],
+                capture_output=True, text=True, timeout=5
+            )
+            page_size = 4096
+            try:
+                ps_out = subprocess.run(
+                    ['sysctl', '-n', 'hw.pagesize'],
+                    capture_output=True, text=True, timeout=5
+                )
+                if ps_out.returncode == 0 and ps_out.stdout.strip().isdigit():
+                    page_size = int(ps_out.stdout.strip())
+            except Exception:
+                pass
+            free_pages = 0
+            inactive_pages = 0
+            if vm.returncode == 0:
+                for line in vm.stdout.split('\n'):
+                    if 'Pages free' in line:
+                        free_pages = int(''.join(filter(str.isdigit, line.split(':')[-1])) or 0)
+                    elif 'Pages inactive' in line:
+                        inactive_pages = int(''.join(filter(str.isdigit, line.split(':')[-1])) or 0)
+            free_ram = (free_pages + inactive_pages) * page_size
+            used_ram = total_ram - free_ram
+            used_pct = round((used_ram / total_ram) * 100, 1) if total_ram else 0
+            ollama_ram = _ollama_ram_darwin()
+        except Exception as e:
+            return {"success": False, "error": f"system_stats failed on macOS: {str(e)}"}
+    else:
+        try:
+            with open('/proc/meminfo', 'r') as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        if parts[0] == 'MemTotal:':
+                            total_ram = int(parts[1]) * 1024  # kB -> bytes
+                        elif parts[0] == 'MemAvailable:':
+                            free_ram = int(parts[1]) * 1024
+            used_ram = total_ram - free_ram
+            used_pct = round((used_ram / total_ram) * 100, 1) if total_ram else 0
+            ollama_ram = _ollama_ram_linux()
+        except Exception as e:
+            return {"success": False, "error": f"system_stats failed on Linux: {str(e)}"}
+
+    return {
+        "success": True,
+        "result": {
+            "total_ram": total_ram,
+            "used_ram": used_ram,
+            "free_ram": free_ram,
+            "used_pct": used_pct,
+            "ollama_ram": ollama_ram,
+        }
+    }
+
+
 def execute_action(action_data: dict) -> dict:
     """
     Main dispatcher for file, Docker and Ollama actions.
@@ -546,7 +727,8 @@ def execute_action(action_data: dict) -> dict:
           list_files, create_directory, append_file, get_file_info,
           docker_check_ollama, docker_start_ollama, docker_stop_ollama,
           docker_restart_ollama, docker_get_info, ollama_list_models,
-          ollama_running_models, ollama_load_model, ollama_stop_model
+          ollama_running_models, ollama_load_model, ollama_stop_model,
+          system_stats
         - project_path: str (required for file actions) - The active project directory
         - path: str (required for most actions) - Relative path within project
         - content: str (optional) - File content for write/create actions
@@ -579,6 +761,8 @@ def execute_action(action_data: dict) -> dict:
         "ollama_stop_model": lambda: ollama_stop_model(ollama_url, model),
     }
 
+    if action == "system_stats":
+        return system_stats()
     if action in docker_actions:
         return docker_actions[action]()
     if action in ollama_actions:

@@ -97,3 +97,18 @@ export interface ActionResultDto {
   mode?: string;
   details?: string;
 }
+
+export interface SystemStatsDto {
+  totalRam: number;
+  usedRam: number;
+  freeRam: number;
+  usedPct: number;
+  ollamaRam: number;
+}
+
+export interface ModelUsageDto {
+  model: string;
+  sessions: number;
+  messages: number;
+  agentRuns: number;
+}
