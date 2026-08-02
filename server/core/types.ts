@@ -84,3 +84,43 @@ export interface RunningModel {
   expires_at: string;
   estimated_size?: number;
 }
+
+export interface OpenCodeSettings {
+  port: number;
+  hostname: string;
+  password: string;
+  autoStart: boolean;
+}
+
+export interface OpenCodeSessionRow {
+  id: string;
+  project_id: string | null;
+  title: string;
+  agent: string;
+  model: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OpenCodeMessageRow {
+  id: string;
+  session_id: string;
+  role: string;
+  content: string;
+  model: string;
+  agent: string;
+  metadata_json: string;
+  created_at: string;
+}
+
+export interface OpenCodeQueryLogRow {
+  id: string;
+  project_id: string | null;
+  title: string;
+  raw_query: string;
+  optimized_query: string | null;
+  model: string;
+  agent: string;
+  created_at: string;
+}

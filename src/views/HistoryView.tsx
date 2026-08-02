@@ -1,19 +1,22 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { History, Share2, FileText, Terminal, ShieldCheck } from 'lucide-react';
+import { History, Share2, FileText, Terminal, ShieldCheck, Command } from 'lucide-react';
 import type { GraphNodeDto, TaskLogDto, ProjectQueryDto } from '../types/dto';
 import { fetchGraphNodes, fetchTaskLogs, fetchProjectQueries, fetchAuditEvents, fetchSystemLogs, AuditEventDto, SystemLogDto } from '../services/apiDb';
+import type { OpenCodeQuery } from '../types';
+import { listOpenCodeQueries } from '../services/opencode';
 
 interface Props {
-  projectInfo: { name: string; path: string };
+  projectInfo: { name: string; path: string; id?: string };
 }
 
-type Tab = 'nodes' | 'logs' | 'queries' | 'audit';
+type Tab = 'nodes' | 'logs' | 'queries' | 'ocQueries' | 'audit';
 
 export const HistoryView: React.FC<Props> = ({ projectInfo }) => {
   const [activeTab, setActiveTab] = useState<Tab>('nodes');
   const [nodes, setNodes] = useState<GraphNodeDto[]>([]);
   const [logs, setLogs] = useState<TaskLogDto[]>([]);
   const [queries, setQueries] = useState<ProjectQueryDto[]>([]);
+  const [ocQueries, setOcQueries] = useState<OpenCodeQuery[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEventDto[]>([]);
   const [systemLogs, setSystemLogs] = useState<SystemLogDto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -23,16 +26,18 @@ export const HistoryView: React.FC<Props> = ({ projectInfo }) => {
     setLoading(true);
     setError('');
     try {
-      const [nodeList, logList, queryList, eventList, sysLogs] = await Promise.all([
+      const [nodeList, logList, queryList, eventList, sysLogs, ocList] = await Promise.all([
         fetchGraphNodes(projectInfo.name),
         fetchTaskLogs(projectInfo.name),
         fetchProjectQueries(projectInfo.name),
         fetchAuditEvents(),
         fetchSystemLogs(),
+        listOpenCodeQueries(projectInfo.id),
       ]);
       setNodes(nodeList);
       setLogs(logList);
       setQueries(queryList);
+      setOcQueries(ocList);
       setAuditEvents(eventList);
       setSystemLogs(sysLogs);
     } catch (err) {
@@ -40,7 +45,7 @@ export const HistoryView: React.FC<Props> = ({ projectInfo }) => {
     } finally {
       setLoading(false);
     }
-  }, [projectInfo.name]);
+  }, [projectInfo.name, projectInfo.id]);
 
   useEffect(() => {
     loadHistory();
@@ -86,6 +91,16 @@ export const HistoryView: React.FC<Props> = ({ projectInfo }) => {
           }`}
         >
           <Terminal className="w-3.5 h-3.5" /> Consultas ({queries.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('ocQueries')}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg font-mono text-xs transition ${
+            activeTab === 'ocQueries'
+              ? 'bg-amber-50 dark:bg-emerald-500/10 text-amber-600 dark:text-emerald-400 border border-amber-300 dark:border-emerald-500/30'
+              : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+          }`}
+        >
+          <Command className="w-3.5 h-3.5" /> OpenCode ({ocQueries.length})
         </button>
         <button
           onClick={() => setActiveTab('audit')}
@@ -169,6 +184,38 @@ export const HistoryView: React.FC<Props> = ({ projectInfo }) => {
                   {q.executionTimeMs != null && (
                     <p className="text-[10px] text-zinc-400">Tiempo de ejecución: {q.executionTimeMs} ms</p>
                   )}
+                </div>
+              </details>
+            ))
+          )}
+        </div>
+      )}
+
+      {!loading && !error && activeTab === 'ocQueries' && (
+        <div className="space-y-4">
+          {ocQueries.length === 0 ? (
+            <p className="font-mono text-xs text-zinc-500 dark:text-zinc-500">
+              No hay consultas OpenCode registradas para este proyecto.
+            </p>
+          ) : (
+            ocQueries.map((q) => (
+              <details key={q.id} className="bg-white/80 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 font-mono text-xs space-y-2">
+                <summary className="cursor-pointer font-bold text-sky-600 dark:text-blue-400 flex justify-between items-center">
+                  <span>❯ {q.title}</span>
+                  <span className="text-[10px] text-zinc-500 dark:text-zinc-500">{new Date(q.createdAt).toLocaleString()}</span>
+                </summary>
+                <div className="mt-3 pt-3 border-t border-zinc-200 dark:border-zinc-800 space-y-2">
+                  <div>
+                    <p className="text-zinc-400 uppercase tracking-wider text-[10px] mb-1">Consulta</p>
+                    <pre className="bg-zinc-950 dark:bg-zinc-950/80 border border-zinc-200 dark:border-zinc-800 rounded p-2 text-zinc-300 whitespace-pre-wrap">{q.rawQuery}</pre>
+                  </div>
+                  {q.optimizedQuery && (
+                    <div>
+                      <p className="text-zinc-400 uppercase tracking-wider text-[10px] mb-1">Respuesta (resumen)</p>
+                      <pre className="bg-zinc-950 dark:bg-zinc-950/80 border border-zinc-200 dark:border-zinc-800 rounded p-2 text-emerald-400 whitespace-pre-wrap">{q.optimizedQuery}</pre>
+                    </div>
+                  )}
+                  <p className="text-[10px] text-zinc-400">modelo: {q.model} · agente: {q.agent}</p>
                 </div>
               </details>
             ))

@@ -11,6 +11,7 @@ import { PlanesView } from './views/PlanesView';
 import { OllamaView } from './views/OllamaView';
 import { PlaygroundView } from './views/PlaygroundView';
 import { HistoryView } from './views/HistoryView';
+import { OpenCodeView } from './views/OpenCodeView';
 import { SettingsView } from './views/SettingsView';
 
 const applyTheme = (theme: Theme) => {
@@ -146,6 +147,7 @@ export const App: React.FC = () => {
           />
         )}
         {activeView === 'ollama' && <OllamaView models={models} refreshModels={refreshModels} />}
+        {activeView === 'opencode' && <OpenCodeView projectInfo={projectInfo} />}
         {activeView === 'playground' && <PlaygroundView models={models} selectedModel={selectedModel} />}
         {activeView === 'history' && <HistoryView projectInfo={projectInfo} />}
         {activeView === 'settings' && (

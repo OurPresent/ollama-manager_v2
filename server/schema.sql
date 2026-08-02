@@ -247,6 +247,36 @@ CREATE TABLE IF NOT EXISTS file_access_log (
 
 CREATE INDEX IF NOT EXISTS idx_file_access_log_project ON file_access_log(project_id, created_at DESC);
 
+-- Sesiones y mensajes de OpenCode (historial de consultas por proyecto)
+CREATE TABLE IF NOT EXISTS opencode_sessions (
+    id TEXT PRIMARY KEY,
+    project_id TEXT,
+    title TEXT NOT NULL,
+    agent TEXT DEFAULT '',
+    model TEXT DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'active', -- active | archived | error
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_opencode_sessions_project ON opencode_sessions(project_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_opencode_sessions_updated ON opencode_sessions(updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS opencode_messages (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    role TEXT NOT NULL, -- user | assistant | tool
+    content TEXT NOT NULL,
+    model TEXT DEFAULT '',
+    agent TEXT DEFAULT '',
+    metadata_json TEXT DEFAULT '{}',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES opencode_sessions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_opencode_messages_session ON opencode_messages(session_id, created_at);
+
 -- Contexto estructural del proyecto (generado al indexar)
 CREATE TABLE IF NOT EXISTS project_context_blocks (
     id TEXT PRIMARY KEY,
@@ -295,5 +325,9 @@ INSERT INTO app_settings (key, value)
 VALUES
     ('theme', 'dark'),
     ('ollama_url', 'http://localhost:11434'),
-    ('ollama_mode', 'local')
+    ('ollama_mode', 'local'),
+    ('opencode_port', '4096'),
+    ('opencode_hostname', '127.0.0.1'),
+    ('opencode_password', ''),
+    ('opencode_auto_start', '0')
 ON CONFLICT(key) DO NOTHING;

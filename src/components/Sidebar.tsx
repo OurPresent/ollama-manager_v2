@@ -1,17 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { ActiveView, OllamaModel, ProjectInfo } from '../types';
-import { 
-  Home, 
-  MessageSquare, 
-  Bot, 
-  Box, 
-  Sliders, 
-  History, 
-  Folder, 
+import {
+  Home,
+  MessageSquare,
+  Bot,
+  Box,
+  Sliders,
+  History,
+  Folder,
   Cpu,
   Circle,
   Play,
-  Settings
+  Settings,
+  Terminal
 } from 'lucide-react';
 import { activateProject, fetchActiveProject, fetchProjects, registerProject } from '../services/systemApi';
 import { useChatStore } from '../store/chatStore';
@@ -53,6 +54,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'agents', label: 'Agentes', icon: <Bot className="w-4 h-4" /> },
     { id: 'planes', label: 'Planes', icon: <Play className="w-4 h-4" /> },
     { id: 'ollama', label: 'Ollama', icon: <Box className="w-4 h-4" /> },
+    { id: 'opencode', label: 'OpenCode', icon: <Terminal className="w-4 h-4" /> },
     { id: 'playground', label: 'Playground', icon: <Sliders className="w-4 h-4" /> },
     { id: 'history', label: 'Historial & Graph', icon: <History className="w-4 h-4" /> },
     { id: 'settings', label: 'Configuración', icon: <Settings className="w-4 h-4" /> },

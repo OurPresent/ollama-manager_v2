@@ -17,6 +17,8 @@ import { auditRouter } from './routes/auditRoutes';
 import { planRouter } from './routes/planRoutes';
 import { approvalRouter } from './routes/approvalRoutes';
 import { systemRouter } from './routes/systemRoutes';
+import { opencodeRouter } from './routes/opencodeRoutes';
+import { stopManagedOpenCodeServer } from './services/opencodeServerManager';
 
 const app = express();
 app.use(cors());
@@ -36,12 +38,21 @@ app.use('/api/audit', auditRouter);
 app.use('/api/plans', planRouter);
 app.use('/api/approvals', approvalRouter);
 app.use('/api/system', systemRouter);
+app.use('/api/opencode', opencodeRouter);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', service: 'ollama-manager-v2' });
 });
 
 const PORT = 8502;
+
+const shutdown = (): void => {
+  console.log('🛑 Deteniendo backend...');
+  stopManagedOpenCodeServer();
+  process.exit(0);
+};
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 
 initDb()
   .then(async () => {
