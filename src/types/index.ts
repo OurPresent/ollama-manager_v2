@@ -57,6 +57,7 @@ export interface PersistedAgent {
   role: string;
   systemPrompt: string;
   description: string;
+  model?: string;
   isBuiltin?: boolean;
   status: 'idle' | 'running' | 'completed' | 'error';
   lastExecution?: string;

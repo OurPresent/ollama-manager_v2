@@ -28,6 +28,7 @@ export interface AgentRow {
   role: string;
   description: string;
   system_prompt: string;
+  model?: string;
   is_builtin: number;
   is_active: number;
   created_at: string;

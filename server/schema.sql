@@ -112,6 +112,7 @@ CREATE TABLE IF NOT EXISTS agents (
     role TEXT NOT NULL,
     description TEXT DEFAULT '',
     system_prompt TEXT NOT NULL,
+    model TEXT DEFAULT '',
     is_builtin INTEGER NOT NULL DEFAULT 0,
     is_active INTEGER NOT NULL DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,

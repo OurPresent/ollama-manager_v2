@@ -1,15 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Bot, Trash2, Edit2, Settings } from 'lucide-react';
-import { PersistedAgent } from '../types';
+import { Plus, Bot, Trash2, Edit2, Settings, Cpu } from 'lucide-react';
+import { OllamaModel, PersistedAgent } from '../types';
 import { createAgent, deleteAgent, fetchAgents, updateAgent } from '../services/systemApi';
 
 interface Props {
   selectedModel: string;
+  models: OllamaModel[];
   projectInfo: { name: string; path: string };
   projectContext: string;
 }
 
-export const AgentsView: React.FC<Props> = ({ selectedModel, projectInfo: _projectInfo, projectContext: _projectContext }) => {
+export const AgentsView: React.FC<Props> = ({ selectedModel, models, projectInfo: _projectInfo, projectContext: _projectContext }) => {
   const [agents, setAgents] = useState<PersistedAgent[]>([]);
 
   const [showAddModal, setShowAddModal] = useState(false);
@@ -18,7 +19,8 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, projectInfo: _proje
     name: '',
     role: '',
     systemPrompt: '',
-    description: ''
+    description: '',
+    model: ''
   });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -45,7 +47,7 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, projectInfo: _proje
 
   const handleAddAgent = () => {
     setEditingAgent(null);
-    setFormData({ name: '', role: '', systemPrompt: '', description: '' });
+    setFormData({ name: '', role: '', systemPrompt: '', description: '', model: '' });
     setShowAddModal(true);
   };
 
@@ -55,7 +57,8 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, projectInfo: _proje
       name: agent.name,
       role: agent.role,
       systemPrompt: agent.systemPrompt,
-      description: agent.description
+      description: agent.description,
+      model: agent.model || ''
     });
     setShowAddModal(true);
   };
@@ -71,7 +74,7 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, projectInfo: _proje
       }
       await loadAgents();
       setShowAddModal(false);
-      setFormData({ name: '', role: '', systemPrompt: '', description: '' });
+      setFormData({ name: '', role: '', systemPrompt: '', description: '', model: '' });
       setEditingAgent(null);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'No se pudo guardar el agente');
@@ -196,6 +199,18 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, projectInfo: _proje
               <p className="text-xs font-mono text-zinc-700 dark:text-zinc-300 line-clamp-2">{agent.systemPrompt}</p>
             </div>
 
+            {agent.model ? (
+              <div className="flex items-center gap-1.5 text-[10px] font-mono text-sky-600 dark:text-blue-400">
+                <Cpu className="w-3 h-3" />
+                Modelo asignado: <strong>{agent.model}</strong>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 text-[10px] font-mono text-zinc-500 dark:text-zinc-500">
+                <Cpu className="w-3 h-3" />
+                Usa el modelo global: <strong>{selectedModel || 'sin definir'}</strong>
+              </div>
+            )}
+
             {agent.isBuiltin && (
               <p className="text-[10px] font-mono text-sky-600 dark:text-blue-400">Agente base persistido en SQLite</p>
             )}
@@ -298,6 +313,25 @@ export const AgentsView: React.FC<Props> = ({ selectedModel, projectInfo: _proje
                   rows={3}
                   className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg px-4 py-2 font-sans text-sm text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-amber-500 dark:focus:border-emerald-500/50"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-mono text-zinc-500 dark:text-zinc-400 mb-2">Modelo del Agente</label>
+                <select
+                  value={formData.model}
+                  onChange={(e) => setFormData({ ...formData, model: e.target.value })}
+                  className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg px-4 py-2 font-mono text-sm text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-amber-500 dark:focus:border-emerald-500/50"
+                >
+                  <option value="">Usar modelo global (${selectedModel || 'sin definir'})</option>
+                  {models.map((m) => (
+                    <option key={m.name} value={m.name}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] font-mono text-zinc-500 dark:text-zinc-500 mt-1.5">
+                  Si no eliges modelo, el agente usará el modelo seleccionado globalmente.
+                </p>
               </div>
 
               <div>

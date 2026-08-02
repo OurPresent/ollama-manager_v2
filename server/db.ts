@@ -69,6 +69,18 @@ export const saveDb = () => {
   }
 };
 
+const ensureColumn = (database: Database, table: string, column: string, definition: string): void => {
+  const info = database.exec(`PRAGMA table_info(${table})`);
+  const columns = info[0]?.values.map((row) => String(row[1])) ?? [];
+  if (!columns.includes(column)) {
+    database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+};
+
+const runMigrations = async (database: Database): Promise<void> => {
+  ensureColumn(database, 'agents', 'model', "TEXT DEFAULT ''");
+};
+
 export const initDb = async () => {
   try {
     const database = await getDb();
@@ -80,6 +92,7 @@ export const initDb = async () => {
     
     const schema = fs.readFileSync(SCHEMA_PATH, 'utf-8');
     database.exec(schema);
+    await runMigrations(database);
     saveDb();
     console.log('⚡ SQLite Base de Datos inicializada correctamente.');
   } catch (error) {

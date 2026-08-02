@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { streamChatCompletion } from '../services/ollama';
+import { streamChatCompletion, loadOllamaModel, stopOllamaModel } from '../services/ollama';
 import { parseAndSaveMemoryJson } from '../services/memoryDb';
 import { executeAllActions, formatActionResult } from '../services/fileActions';
 import { saveTaskLogToSqlite, createPlan, startPlanRun, finishPlanRun, startAgentRun, finishAgentRun } from '../services/apiDb';
 import { fetchAgents } from '../services/systemApi';
 import type { PersistedAgent } from '../types';
-import { Play, CheckCircle2, Loader2, Sparkles, FileCode } from 'lucide-react';
+import { Play, CheckCircle2, Loader2, Sparkles, FileCode, Cpu } from 'lucide-react';
 
 interface Props {
   selectedModel: string;
@@ -18,7 +18,7 @@ export const PlanesView: React.FC<Props> = ({ selectedModel, projectInfo, projec
   const [plan, setPlan] = useState('');
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
   const [isRunningPipeline, setIsRunningPipeline] = useState(false);
-  const [agentOutputs, setAgentOutputs] = useState<{ role: string; output: string }[]>([]);
+  const [agentOutputs, setAgentOutputs] = useState<{ role: string; output: string; model?: string }[]>([]);
   const [executingActions, setExecutingActions] = useState(false);
   const [agents, setAgents] = useState<PersistedAgent[]>([]);
 
@@ -136,24 +136,38 @@ Ejemplo de uso:
     let prevOutputs: string[] = [];
 
     for (const role of agents) {
+      const agentModel = role.model || selectedModel;
       const promptAcc = `PLAN TÉCNICO:\n${plan}\n\nAVANCES PREVIOS DE OTROS AGENTES:\n${prevOutputs.slice(-2).join('\n---\n')}`;
       let currentOutput = '';
 
-      setAgentOutputs((prev) => [...prev, { role: role.name, output: 'Ejecutando...' }]);
+      setAgentOutputs((prev) => [...prev, { role: role.name, model: agentModel, output: 'Ejecutando...' }]);
 
       // Crear agent_run
       let agentRunId = '';
       if (runId && role.id) {
         try {
-          agentRunId = await startAgentRun(runId, role.id, selectedModel);
+          agentRunId = await startAgentRun(runId, role.id, agentModel);
         } catch (err) {
           console.error('Error creando agent_run:', err);
         }
       }
 
+      // Levantar el LLM asignado al agente en Ollama (si no es el modelo global)
+      const loadForAgent = agentModel !== selectedModel;
+      if (loadForAgent) {
+        try {
+          setAgentOutputs((prev) =>
+            prev.map((item) => (item.role === role.name ? { ...item, output: 'Cargando modelo en Ollama...' } : item))
+          );
+          await loadOllamaModel(agentModel);
+        } catch (err) {
+          console.error(`Error cargando modelo ${agentModel}:`, err);
+        }
+      }
+
       try {
         await streamChatCompletion(
-          selectedModel,
+          agentModel,
           [
             { role: 'system', content: role.systemPrompt },
             { role: 'user', content: promptAcc }
@@ -161,7 +175,7 @@ Ejemplo de uso:
           (chunk) => {
             currentOutput += chunk;
             setAgentOutputs((prev) =>
-              prev.map((item) => (item.role === role.name ? { role: role.name, output: currentOutput } : item))
+              prev.map((item) => (item.role === role.name ? { role: role.name, model: agentModel, output: currentOutput } : item))
             );
           }
         );
@@ -180,11 +194,11 @@ Ejemplo de uso:
             currentOutput = cleanResponse || currentOutput;
           }
           setAgentOutputs((prev) =>
-            prev.map((item) => (item.role === role.name ? { role: role.name, output: currentOutput } : item))
+            prev.map((item) => (item.role === role.name ? { role: role.name, model: agentModel, output: currentOutput } : item))
           );
         }
 
-        prevOutputs.push(`### ${role.name}\n${currentOutput}`);
+        prevOutputs.push(`### ${role.name} (modelo: ${agentModel})\n${currentOutput}`);
 
         // Persistir salida del agente en la bitácora (Fase 2.2)
         try {
@@ -207,6 +221,15 @@ Ejemplo de uso:
         console.error(err);
         if (agentRunId) {
           finishAgentRun(agentRunId, 'error', currentOutput).catch(() => undefined);
+        }
+      } finally {
+        // Detener el LLM del agente al finalizar si no es el modelo global de la app
+        if (loadForAgent) {
+          try {
+            await stopOllamaModel(agentModel);
+          } catch (err) {
+            console.error(`Error deteniendo modelo ${agentModel}:`, err);
+          }
         }
       }
     }
@@ -325,7 +348,15 @@ Ejemplo de uso:
             {agentOutputs.map((out, idx) => (
               <div key={idx} className="border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/80 rounded-lg p-4 font-mono text-xs">
                 <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-2 mb-2">
-                  <span className="text-sky-600 dark:text-blue-400 font-bold">{out.role}</span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sky-600 dark:text-blue-400 font-bold">{out.role}</span>
+                    {out.model && (
+                      <span className="flex items-center gap-1 text-[10px] font-mono text-zinc-500 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded px-1.5 py-0.5">
+                        <Cpu className="w-3 h-3" />
+                        {out.model}
+                      </span>
+                    )}
+                  </div>
                   {out.output !== 'Ejecutando...' ? (
                     <CheckCircle2 className="w-4 h-4 text-emerald-500 dark:text-emerald-500" />
                   ) : (

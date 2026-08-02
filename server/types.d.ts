@@ -9,8 +9,13 @@ declare module 'sql.js' {
     free(): void;
   }
 
+  export interface QueryExecResult {
+    columns: string[];
+    values: any[][];
+  }
+
   export interface Database {
-    exec(sql: string): void;
+    exec(sql: string): QueryExecResult[];
     prepare(sql: string): Statement;
     export(): Uint8Array;
   }

@@ -7,6 +7,7 @@ export interface NewAgent {
   role: string;
   description: string;
   systemPrompt: string;
+  model?: string;
   isBuiltin?: boolean;
 }
 
@@ -122,8 +123,8 @@ export const seedBuiltinAgents = async (): Promise<void> => {
   for (const agent of builtinAgents) {
     const id = BUILTIN_AGENT_IDS[agent.name] ?? createId('agent');
     await execute(
-      `INSERT INTO agents (id, name, role, description, system_prompt, is_builtin, is_active, updated_at)
-       VALUES (?, ?, ?, ?, ?, 1, 1, CURRENT_TIMESTAMP)
+      `INSERT INTO agents (id, name, role, description, system_prompt, model, is_builtin, is_active, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, 1, CURRENT_TIMESTAMP)
        ON CONFLICT(id) DO UPDATE SET
          name = excluded.name,
          role = excluded.role,
@@ -131,7 +132,7 @@ export const seedBuiltinAgents = async (): Promise<void> => {
          system_prompt = excluded.system_prompt,
          is_active = 1,
          updated_at = CURRENT_TIMESTAMP`,
-      [id, agent.name, agent.role, agent.description, agent.systemPrompt]
+      [id, agent.name, agent.role, agent.description, agent.systemPrompt, agent.model ?? '']
     );
   }
 };
@@ -149,9 +150,17 @@ export const getAgentById = async (id: string): Promise<AgentRow | null> => {
 export const insertAgent = async (agent: NewAgent): Promise<string> => {
   const id = createId('agent');
   await execute(
-    `INSERT INTO agents (id, name, role, description, system_prompt, is_builtin, is_active, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)`,
-    [id, agent.name, agent.role, agent.description, agent.systemPrompt, agent.isBuiltin ? 1 : 0]
+    `INSERT INTO agents (id, name, role, description, system_prompt, model, is_builtin, is_active, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)`,
+    [
+      id,
+      agent.name,
+      agent.role,
+      agent.description,
+      agent.systemPrompt,
+      agent.model ?? '',
+      agent.isBuiltin ? 1 : 0,
+    ]
   );
   await snapshotAgentVersion(id, agent);
   return id;
@@ -159,7 +168,7 @@ export const insertAgent = async (agent: NewAgent): Promise<string> => {
 
 export const updateAgent = async (
   id: string,
-  data: { name: string; role: string; description: string; systemPrompt: string }
+  data: { name: string; role: string; description: string; systemPrompt: string; model?: string }
 ): Promise<void> => {
   const existing = await getAgentById(id);
   if (existing && existing.system_prompt !== data.systemPrompt) {
@@ -172,9 +181,9 @@ export const updateAgent = async (
   }
   await execute(
     `UPDATE agents
-     SET name = ?, role = ?, description = ?, system_prompt = ?, updated_at = CURRENT_TIMESTAMP
+     SET name = ?, role = ?, description = ?, system_prompt = ?, model = ?, updated_at = CURRENT_TIMESTAMP
      WHERE id = ?`,
-    [data.name, data.role, data.description, data.systemPrompt, id]
+    [data.name, data.role, data.description, data.systemPrompt, data.model ?? '', id]
   );
 };
 

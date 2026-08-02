@@ -19,6 +19,7 @@ const agentSchema = z.object({
   role: z.string().min(1),
   systemPrompt: z.string().min(1),
   description: z.string().optional().default(''),
+  model: z.string().optional().default(''),
 });
 
 const mapAgentRow = (row: AgentRow) => ({
@@ -27,6 +28,7 @@ const mapAgentRow = (row: AgentRow) => ({
   role: row.role,
   description: row.description,
   systemPrompt: row.system_prompt,
+  model: row.model || '',
   isBuiltin: Boolean(row.is_builtin),
   status: 'idle' as const,
   createdAt: row.created_at,
@@ -51,6 +53,7 @@ router.post('/', async (req, res) => {
       role: parsed.role,
       systemPrompt: parsed.systemPrompt,
       description: parsed.description,
+      model: parsed.model,
       isBuiltin: false,
     });
     await writeAuditEvent('agent.created', 'agent', id, null, { name: parsed.name, role: parsed.role });

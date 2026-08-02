@@ -125,6 +125,7 @@ export const App: React.FC = () => {
         {activeView === 'agents' && (
           <AgentsView
             selectedModel={selectedModel}
+            models={models}
             projectInfo={projectInfo}
             projectContext={projectContext}
           />
