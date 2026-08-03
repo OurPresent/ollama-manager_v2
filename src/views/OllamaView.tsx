@@ -16,6 +16,7 @@ export const OllamaView: React.FC<Props> = ({ models, refreshModels }) => {
   const [pullProgress, setPullProgress] = useState(0);
   const [isPulling, setIsPulling] = useState(false);
   const [runningModels, setRunningModels] = useState<RunningModelDto[]>([]);
+  const [loadingModelName, setLoadingModelName] = useState<string | null>(null);
   const [loadingMemory, setLoadingMemory] = useState(false);
   const [modelToLoad, setModelToLoad] = useState('');
   const [memoryError, setMemoryError] = useState('');
@@ -84,29 +85,37 @@ export const OllamaView: React.FC<Props> = ({ models, refreshModels }) => {
 
   const handleLoadModel = async () => {
     if (!modelToLoad.trim()) return;
+    const model = modelToLoad.trim();
     setMemoryError('');
+    setLoadingModelName(model);
     try {
-      await loadOllamaModel(modelToLoad.trim());
+      await loadOllamaModel(model);
       setModelToLoad('');
       await refreshRunningModels();
     } catch (err) {
       setMemoryError(err instanceof Error ? err.message : 'Error al cargar el modelo en memoria');
+    } finally {
+      setLoadingModelName(null);
     }
   };
 
   const handleStopModel = async (model: string) => {
     setMemoryError('');
+    setLoadingModelName(model);
     try {
       await stopOllamaModel(model);
       await refreshRunningModels();
     } catch (err) {
       setMemoryError(err instanceof Error ? err.message : 'Error al descargar el modelo de memoria');
+    } finally {
+      setLoadingModelName(null);
     }
   };
 
   const handleToggleStoredModel = async (modelName: string) => {
     const isRunning = runningModelNames.has(modelName);
     setMemoryError('');
+    setLoadingModelName(modelName);
     try {
       if (isRunning) {
         await stopOllamaModel(modelName);
@@ -116,6 +125,8 @@ export const OllamaView: React.FC<Props> = ({ models, refreshModels }) => {
       await Promise.all([refreshRunningModels(), refreshModels()]);
     } catch (err) {
       setMemoryError(err instanceof Error ? err.message : 'Error al cambiar el estado del modelo');
+    } finally {
+      setLoadingModelName(null);
     }
   };
 
@@ -215,10 +226,11 @@ export const OllamaView: React.FC<Props> = ({ models, refreshModels }) => {
           />
           <button
             onClick={handleLoadModel}
-            disabled={!modelToLoad.trim()}
+            disabled={!modelToLoad.trim() || loadingModelName === modelToLoad.trim()}
             className="px-4 py-2 bg-rose-50 dark:bg-rose-500/10 border border-rose-300 dark:border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 rounded-lg font-mono text-xs transition flex items-center gap-2 disabled:opacity-50"
           >
-            <Play className="w-3.5 h-3.5" /> Cargar
+            {loadingModelName === modelToLoad.trim() ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+            {loadingModelName === modelToLoad.trim() ? 'Cargando…' : 'Cargar'}
           </button>
         </div>
 
@@ -327,18 +339,24 @@ export const OllamaView: React.FC<Props> = ({ models, refreshModels }) => {
                       </p>
                       {isRunning && <p className="text-[10px] text-emerald-600 dark:text-emerald-400">En memoria</p>}
                     </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        onClick={() => handleToggleStoredModel(m.name)}
-                        className={`p-1.5 rounded-lg border transition ${
-                          isRunning
-                            ? 'bg-rose-50 dark:bg-rose-500/10 border-rose-300 dark:border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20'
-                            : 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/20'
-                        }`}
-                        title={isRunning ? 'Detener modelo' : 'Ejecutar modelo'}
-                      >
-                        {isRunning ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                      </button>
+                     <div className="flex items-center gap-1 shrink-0">
+                      {loadingModelName === m.name ? (
+                        <div className="p-1.5 rounded-lg border bg-zinc-100 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 flex items-center justify-center" title="Cargando…">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleToggleStoredModel(m.name)}
+                          className={`p-1.5 rounded-lg border transition ${
+                            isRunning
+                              ? 'bg-rose-50 dark:bg-rose-500/10 border-rose-300 dark:border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20'
+                              : 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/20'
+                          }`}
+                          title={isRunning ? 'Detener modelo' : 'Ejecutar modelo'}
+                        >
+                          {isRunning ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                        </button>
+                      )}
                       <button
                         onClick={() => handleDelete(m.name)}
                         className="p-1.5 text-zinc-400 dark:text-zinc-500 hover:text-rose-600 dark:hover:text-rose-400 transition"

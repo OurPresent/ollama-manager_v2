@@ -103,8 +103,18 @@ router.get('/import/template', (_req, res) => {
         {
           name: 'Arquitecto de Soluciones',
           role: 'Solution Architect',
-          description: 'Diseña la arquitectura técnica del sistema',
-          systemPrompt: 'Arquitecto Senior. Diseña arquitecturas escalables y seguras.',
+          description: 'Diseña la arquitectura técnica del sistema y valida las decisiones clave.',
+          systemPrompt:
+            'Eres un Arquitecto de Soluciones Senior. Diseña arquitecturas escalables, seguras y basadas en principios de separación de responsabilidades. Sé conciso y estructurado.',
+          model: '',
+        },
+        {
+          name: 'Backend Developer',
+          role: 'Backend Developer',
+          description: 'Implementa endpoints REST con Express + TypeScript y validación con zod.',
+          systemPrompt:
+            'Eres un ingeniero backend especializado en Node.js/Express con TypeScript. Usa zod para validar request bodies y centraliza errores con handleRouteError.',
+          model: 'deepseek-coder:6.7b',
         },
       ],
       null,

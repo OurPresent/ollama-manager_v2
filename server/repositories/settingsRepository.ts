@@ -1,5 +1,28 @@
-import { queryAll, execute } from './db';
+import { queryAll, queryOne, execute } from './db';
 import type { AppSettings, AppSettingsRow } from '../core/types';
+
+export const getSetting = async (key: string): Promise<string | null> => {
+  const row = await queryOne<AppSettingsRow>(
+    'SELECT key, value, updated_at FROM app_settings WHERE key = ? LIMIT 1',
+    [key]
+  );
+  return row?.value ?? null;
+};
+
+export const setSetting = async (key: string, value: string): Promise<void> => {
+  await execute(
+    `INSERT INTO app_settings (key, value, updated_at)
+     VALUES (?, ?, CURRENT_TIMESTAMP)
+     ON CONFLICT(key) DO UPDATE SET
+       value = excluded.value,
+       updated_at = CURRENT_TIMESTAMP`,
+    [key, value]
+  );
+};
+
+export const deleteSetting = async (key: string): Promise<void> => {
+  await execute('DELETE FROM app_settings WHERE key = ?', [key]);
+};
 
 export interface AppSettingsResult extends AppSettings {
   raw: AppSettingsRow[];

@@ -57,6 +57,10 @@ coverage/
 # TypeScript cache
 *.tsbuildinfo
 
+# AGENTS.md (instrucciones de trabajo local, no se versiona)
+AGENTS.md
+
+
 # Package manager files (optional, uncomment if needed)
 # pnpm-lock.yaml
 # package-lock.json

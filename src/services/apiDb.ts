@@ -241,6 +241,53 @@ export const finishAgentRun = async (
   });
 };
 
+export interface PlanStepDto {
+  id: string;
+  plan_run_id: string;
+  agent_id?: string | null;
+  agent_name: string;
+  role: string;
+  step_order: number;
+  model_name: string;
+  status: string;
+  output: string;
+  feedback: string;
+  created_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export const createPlanSteps = async (
+  runId: string,
+  steps: Array<{ agentId?: string; agentName: string; role?: string; modelName?: string }>
+): Promise<string[]> => {
+  const res = await fetch(`${BACKEND_URL}/plans/runs/${encodeURIComponent(runId)}/steps`, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ steps }),
+  });
+  const result = await readJson<{ status: string; stepIds: string[] }>(res);
+  return result.stepIds ?? [];
+};
+
+export const fetchPlanSteps = async (runId: string): Promise<PlanStepDto[]> => {
+  const res = await fetch(`${BACKEND_URL}/plans/runs/${encodeURIComponent(runId)}/steps`);
+  const steps = await readJson<PlanStepDto[]>(res);
+  return Array.isArray(steps) ? steps : [];
+};
+
+export const updatePlanStep = async (stepId: string, patch: {
+  status?: 'pending' | 'running' | 'needs_approval' | 'completed' | 'error' | 'cancelled';
+  output?: string;
+  feedback?: string;
+}): Promise<void> => {
+  await fetch(`${BACKEND_URL}/plans/steps/${encodeURIComponent(stepId)}`, {
+    method: 'PATCH',
+    headers: jsonHeaders,
+    body: JSON.stringify(patch),
+  });
+};
+
 export const fetchProjectQueries = async (projectName: string): Promise<ProjectQueryDto[]> => {
   const res = await fetch(`${BACKEND_URL}/queries/${encodeURIComponent(projectName)}`);
   const queries = await readJson<Array<Record<string, unknown>>>(res);

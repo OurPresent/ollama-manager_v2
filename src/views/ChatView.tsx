@@ -32,6 +32,7 @@ export const ChatView: React.FC<Props> = ({ selectedModel, projectInfo, projectC
   const [projectFiles, setProjectFiles] = useState<string[]>([]);
   const [indexingFiles, setIndexingFiles] = useState(false);
   const chatBottomRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   const {
     sessions,
@@ -80,7 +81,8 @@ export const ChatView: React.FC<Props> = ({ selectedModel, projectInfo, projectC
   };
 
   useEffect(() => {
-    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    chatBottomRef.current?.scrollIntoView({ block: 'end', inline: 'nearest' });
+    messagesContainerRef.current && (messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight);
   }, [messages, isStreaming, executingActions]);
 
   const createNewChat = () => {
@@ -416,7 +418,7 @@ INSTRUCCIÓN: Cuando el usuario use el signo $ para referirse a archivos (ej: $a
       )}
 
       {/* Area de Mensajes */}
-      <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto space-y-4 pr-2">
         {messages.map((m, idx) => (
           <div
             key={idx}

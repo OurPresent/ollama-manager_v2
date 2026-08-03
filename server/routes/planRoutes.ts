@@ -12,6 +12,10 @@ import {
   insertAgentRun,
   finishAgentRun,
   listAgentRuns,
+  insertPlanSteps,
+  listPlanSteps,
+  getPlanStepById,
+  updatePlanStep,
 } from '../repositories/planRepository';
 import { writeAuditEvent } from '../core/audit';
 import { handleRouteError } from './errorHandler';
@@ -165,6 +169,68 @@ router.post('/agent-runs/:agentRunId/finish', async (req, res) => {
       .object({ status: z.enum(['completed', 'error']), output: z.string().optional().default('') })
       .parse(req.body ?? {});
     await finishAgentRun(agentRunId, parsed.status, parsed.output);
+    res.json({ status: 'ok' });
+  } catch (error) {
+    handleRouteError(error, res);
+  }
+});
+
+// ---- Pasos / etapas ------------------------------------------------------
+
+router.post('/runs/:runId/steps', async (req, res) => {
+  try {
+    const { runId } = req.params;
+    const parsed = z
+      .object({
+        steps: z
+          .array(
+            z.object({
+              agentId: z.string().optional(),
+              agentName: z.string().min(1),
+              role: z.string().optional().default(''),
+              modelName: z.string().optional().default(''),
+            })
+          )
+          .min(1),
+      })
+      .parse(req.body ?? {});
+    const run = await getPlanRunById(runId);
+    if (!run) {
+      res.status(404).json({ error: 'Plan run not found' });
+      return;
+    }
+    const ids = await insertPlanSteps(runId, parsed.steps);
+    res.json({ status: 'ok', stepIds: ids });
+  } catch (error) {
+    handleRouteError(error, res);
+  }
+});
+
+router.get('/runs/:runId/steps', async (req, res) => {
+  try {
+    const { runId } = req.params;
+    res.json(await listPlanSteps(runId));
+  } catch (error) {
+    handleRouteError(error, res);
+  }
+});
+
+router.patch('/steps/:stepId', async (req, res) => {
+  try {
+    const { stepId } = req.params;
+    const parsed = z
+      .object({
+        status: z.enum(['pending', 'running', 'needs_approval', 'completed', 'error', 'cancelled']).optional(),
+        output: z.string().optional(),
+        feedback: z.string().optional(),
+      })
+      .parse(req.body ?? {});
+    const existing = await getPlanStepById(stepId);
+    if (!existing) {
+      res.status(404).json({ error: 'Plan step not found' });
+      return;
+    }
+    await updatePlanStep(stepId, parsed);
     res.json({ status: 'ok' });
   } catch (error) {
     handleRouteError(error, res);

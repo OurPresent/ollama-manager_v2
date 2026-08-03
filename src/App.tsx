@@ -13,8 +13,11 @@ import { PlaygroundView } from './views/PlaygroundView';
 import { HistoryView } from './views/HistoryView';
 import { OpenCodeView } from './views/OpenCodeView';
 import { IntegracionesView } from './views/IntegracionesView';
+import { FigmaView } from './views/FigmaView';
 import { SettingsView } from './views/SettingsView';
 import { ToastProvider } from './components/Toast';
+
+const MODEL_STORAGE_KEY = 'llmx_selected_model';
 
 const applyTheme = (theme: Theme) => {
   const root = document.documentElement;
@@ -30,7 +33,30 @@ export const App: React.FC = () => {
   const [activeView, setActiveView] = useState<ActiveView>('home');
   const [isOllamaOnline, setIsOllamaOnline] = useState(false);
   const [models, setModels] = useState<OllamaModel[]>([]);
-  const [selectedModel, setSelectedModel] = useState<string>('');
+  const [selectedModel, setSelectedModelState] = useState<string>(() => {
+    const saved = localStorage.getItem(MODEL_STORAGE_KEY);
+    return saved || '';
+  });
+  const setSelectedModel = (model: string | ((prev: string) => string)) => {
+    if (typeof model === 'function') {
+      setSelectedModelState((prev) => {
+        const next = model(prev);
+        if (next) {
+          localStorage.setItem(MODEL_STORAGE_KEY, next);
+        } else {
+          localStorage.removeItem(MODEL_STORAGE_KEY);
+        }
+        return next;
+      });
+      return;
+    }
+    setSelectedModelState(model);
+    if (model) {
+      localStorage.setItem(MODEL_STORAGE_KEY, model);
+    } else {
+      localStorage.removeItem(MODEL_STORAGE_KEY);
+    }
+  };
   const [theme, setTheme] = useState<Theme>(() => {
     const saved = localStorage.getItem('theme');
     if (saved === 'dark' || saved === 'light' || saved === 'system') return saved;
@@ -46,8 +72,13 @@ export const App: React.FC = () => {
     if (status.running) {
       const list = await fetchInstalledModels();
       setModels(list);
-      if (list.length > 0 && !selectedModel) {
-        setSelectedModel(list[0].name);
+      if (list.length > 0) {
+        setSelectedModel((prev) => {
+          if (prev && list.some((m) => m.name === prev)) return prev;
+          const saved = localStorage.getItem(MODEL_STORAGE_KEY);
+          if (saved && list.some((m) => m.name === saved)) return saved;
+          return list[0].name;
+        });
       }
       return;
     }
@@ -156,6 +187,7 @@ export const App: React.FC = () => {
           {activeView === 'playground' && <PlaygroundView models={models} selectedModel={selectedModel} />}
           {activeView === 'history' && <HistoryView projectInfo={projectInfo} />}
           {activeView === 'integraciones' && <IntegracionesView />}
+          {activeView === 'figma' && <FigmaView />}
           {activeView === 'settings' && (
             <SettingsView
               onThemeSaved={setTheme}

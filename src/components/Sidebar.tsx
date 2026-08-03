@@ -15,6 +15,15 @@ import {
   Terminal,
   Plug
 } from 'lucide-react';
+
+const FigmaIcon: React.FC<{ className?: string }> = (props) => (
+  <svg viewBox="0 0 24 24" className={props.className} fill="currentColor" aria-hidden="true">
+    <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0Zm3.75 6.5a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
+    <path d="M12 1.5c-.414 0-.825.016-1.233.046 2.516 1.634 4.108 4.616 4.108 8.12 0 2.65-.972 5.053-2.588 6.862 1.361.43 2.82.672 4.315.672A10.5 10.5 0 0 0 12 1.5Z" />
+    <path d="M4.933 3.412A10.47 10.47 0 0 0 1.5 8.25c0 2.202.658 4.205 1.758 5.807-.41-.735-.65-1.553-.65-2.47 0-2.4.958-4.544 2.325-6.082Z" />
+    <path d="M8.095 5.12C9.64 3.782 11.742 3 14 3c1.244 0 2.429.228 3.503.648-.68.98-1.558 1.846-2.582 2.51A2.25 2.25 0 0 0 12 6c-.562 0-1.085-.216-1.453-.57.12-.337.246-.664.385-.986A8.028 8.028 0 0 0 8.095 5.12Z" />
+  </svg>
+);
 import { activateProject, fetchActiveProject, fetchProjects, registerProject } from '../services/systemApi';
 import { useChatStore } from '../store/chatStore';
 
@@ -52,13 +61,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const menuItems: { id: ActiveView; label: string; icon: React.ReactNode }[] = [
     { id: 'home', label: 'Inicio', icon: <Home className="w-4 h-4" /> },
     { id: 'chat', label: 'Chat del Proyecto', icon: <MessageSquare className="w-4 h-4" /> },
-    { id: 'agents', label: 'Agentes', icon: <Bot className="w-4 h-4" /> },
     { id: 'planes', label: 'Planes', icon: <Play className="w-4 h-4" /> },
+    { id: 'agents', label: 'Agentes', icon: <Bot className="w-4 h-4" /> },
     { id: 'ollama', label: 'Ollama', icon: <Box className="w-4 h-4" /> },
     { id: 'opencode', label: 'OpenCode', icon: <Terminal className="w-4 h-4" /> },
     { id: 'playground', label: 'Playground', icon: <Sliders className="w-4 h-4" /> },
     { id: 'history', label: 'Historial & Graph', icon: <History className="w-4 h-4" /> },
     { id: 'integraciones', label: 'Integraciones', icon: <Plug className="w-4 h-4" /> },
+    { id: 'figma', label: 'Figma Imports', icon: <FigmaIcon className="w-4 h-4" /> },
     { id: 'settings', label: 'Configuración', icon: <Settings className="w-4 h-4" /> },
   ];
 

@@ -55,7 +55,7 @@ export const AgentsView: React.FC<Props> = ({
   const [showOutputModal, setShowOutputModal] = useState(false);
   const [currentOutput, setCurrentOutput] = useState({ agentName: '', output: '' });
 
-  const [bulkTab, setBulkTab] = useState<'skills' | 'agents'>('skills');
+  const [bulkTab, setBulkTab] = useState<'agents' | 'skills'>('agents');
   const [bulkJson, setBulkJson] = useState('');
   const [bulkTemplate, setBulkTemplate] = useState<{ items: string; headers: string[] }>({ items: '', headers: [] });
   const [bulkShowTemplate, setBulkShowTemplate] = useState(false);
@@ -87,6 +87,10 @@ export const AgentsView: React.FC<Props> = ({
       });
     }
   };
+
+  React.useEffect(() => {
+    loadBulkTemplate();
+  }, []);
 
   const loadSkills = async () => {
     try {
@@ -360,16 +364,16 @@ export const AgentsView: React.FC<Props> = ({
           </div>
           <div className="flex rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
             <button
-              onClick={() => { setBulkTab('skills'); setBulkResult(null); loadBulkTemplate(); }}
-              className={`px-4 py-2 font-mono text-xs transition ${bulkTab === 'skills' ? 'bg-sky-50 dark:bg-blue-500/10 text-sky-600 dark:text-blue-400' : 'text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'}`}
-            >
-              Skills
-            </button>
-            <button
               onClick={() => { setBulkTab('agents'); setBulkResult(null); loadBulkTemplate(); }}
               className={`px-4 py-2 font-mono text-xs transition ${bulkTab === 'agents' ? 'bg-sky-50 dark:bg-blue-500/10 text-sky-600 dark:text-blue-400' : 'text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'}`}
             >
               Agentes
+            </button>
+            <button
+              onClick={() => { setBulkTab('skills'); setBulkResult(null); loadBulkTemplate(); }}
+              className={`px-4 py-2 font-mono text-xs transition ${bulkTab === 'skills' ? 'bg-sky-50 dark:bg-blue-500/10 text-sky-600 dark:text-blue-400' : 'text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'}`}
+            >
+              Skills
             </button>
           </div>
         </div>

@@ -166,6 +166,26 @@ CREATE TABLE IF NOT EXISTS plan_runs (
 
 CREATE INDEX IF NOT EXISTS idx_plan_runs_plan ON plan_runs(plan_id, started_at DESC);
 
+-- Pasos/etapas de una ejecución por etapas (secuencial y con interacción del usuario)
+CREATE TABLE IF NOT EXISTS plan_steps (
+    id TEXT PRIMARY KEY,
+    plan_run_id TEXT NOT NULL,
+    agent_id TEXT,
+    agent_name TEXT NOT NULL,
+    role TEXT DEFAULT '',
+    step_order INTEGER NOT NULL DEFAULT 0,
+    model_name TEXT DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending', -- pending | running | needs_approval | completed | error | cancelled
+    output TEXT DEFAULT '',
+    feedback TEXT DEFAULT '',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    started_at DATETIME,
+    finished_at DATETIME,
+    FOREIGN KEY (plan_run_id) REFERENCES plan_runs(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_plan_steps_run ON plan_steps(plan_run_id, step_order);
+
 -- Aprobaciones y auditoria
 CREATE TABLE IF NOT EXISTS approval_requests (
     id TEXT PRIMARY KEY,

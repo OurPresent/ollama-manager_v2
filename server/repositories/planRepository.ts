@@ -99,3 +99,75 @@ export const finishAgentRun = async (
 export const listAgentRuns = async (planRunId: string): Promise<DbRow[]> => {
   return queryAll('SELECT * FROM agent_runs WHERE plan_run_id = ? ORDER BY started_at ASC', [planRunId]);
 };
+
+// ---- Pasos / etapas ------------------------------------------------------
+
+export interface NewPlanStep {
+  agentId?: string;
+  agentName: string;
+  role?: string;
+  modelName?: string;
+}
+
+export const insertPlanSteps = async (
+  planRunId: string,
+  steps: NewPlanStep[]
+): Promise<string[]> => {
+  const ids: string[] = [];
+  let order = 0;
+  for (const step of steps) {
+    const id = createId('pstep');
+    ids.push(id);
+    await execute(
+      `INSERT INTO plan_steps (id, plan_run_id, agent_id, agent_name, role, step_order, model_name, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+      [
+        id,
+        planRunId,
+        step.agentId ?? null,
+        step.agentName,
+        step.role ?? '',
+        order,
+        step.modelName ?? '',
+      ]
+    );
+    order += 1;
+  }
+  return ids;
+};
+
+export const listPlanSteps = async (planRunId: string): Promise<DbRow[]> => {
+  return queryAll('SELECT * FROM plan_steps WHERE plan_run_id = ? ORDER BY step_order ASC', [planRunId]);
+};
+
+export const getPlanStepById = async (id: string): Promise<DbRow | null> => {
+  return queryOne('SELECT * FROM plan_steps WHERE id = ? LIMIT 1', [id]);
+};
+
+export const updatePlanStep = async (id: string, data: {
+  status?: 'pending' | 'running' | 'needs_approval' | 'completed' | 'error' | 'cancelled';
+  output?: string;
+  feedback?: string;
+}): Promise<void> => {
+  const sets: string[] = [];
+  const params: unknown[] = [];
+  if (data.status !== undefined) {
+    sets.push('status = ?');
+    params.push(data.status);
+    if (data.status === 'running') sets.push('started_at = COALESCE(started_at, CURRENT_TIMESTAMP)');
+    if (data.status === 'completed' || data.status === 'error' || data.status === 'cancelled') {
+      sets.push('finished_at = CURRENT_TIMESTAMP');
+    }
+  }
+  if (data.output !== undefined) {
+    sets.push('output = ?');
+    params.push(data.output);
+  }
+  if (data.feedback !== undefined) {
+    sets.push('feedback = ?');
+    params.push(data.feedback);
+  }
+  if (sets.length === 0) return;
+  params.push(id);
+  await execute(`UPDATE plan_steps SET ${sets.join(', ')} WHERE id = ?`, params);
+};
