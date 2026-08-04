@@ -195,6 +195,27 @@ export const createPlan = async (data: {
   return result.id;
 };
 
+export const fetchActivePlanRun = async (
+  projectId: string
+): Promise<{
+  run: { id: string; plan_id: string; project_id: string; status: string } | null;
+  plan: { id: string; project_id: string; title: string; goal: string; content: string } | null;
+}> => {
+  const res = await fetch(`${BACKEND_URL}/plans/resume?projectId=${encodeURIComponent(projectId)}`);
+  return readJson<{ run: { id: string; plan_id: string; project_id: string; status: string } | null; plan: { id: string; project_id: string; title: string; goal: string; content: string } | null }>(res);
+};
+
+export const updatePlanClient = async (
+  planId: string,
+  data: { title?: string; goal?: string; content?: string }
+): Promise<void> => {
+  await fetch(`${BACKEND_URL}/plans/${encodeURIComponent(planId)}`, {
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify(data),
+  });
+};
+
 export const startPlanRun = async (planId: string): Promise<string> => {
   const res = await fetch(`${BACKEND_URL}/plans/${encodeURIComponent(planId)}/runs`, {
     method: 'POST',
@@ -319,5 +340,70 @@ export const saveProjectQuery = async (query: {
       optimized_query: query.optimizedQuery ?? null,
       execution_time_ms: query.executionTimeMs ?? null,
     }),
+  });
+};
+
+// ---------------------------------------------------------------------------
+// Mantenimiento / limpieza
+// ---------------------------------------------------------------------------
+
+export interface CleanupTargets {
+  chats: boolean;
+  opencode: boolean;
+  plans: boolean;
+  taskLogs: boolean;
+  queries: boolean;
+  graph: boolean;
+  audit: boolean;
+  systemLogs: boolean;
+  approvals: boolean;
+}
+
+export interface CleanupResult {
+  counts: Record<string, number>;
+  sizeBytesBefore: number;
+  sizeBytesAfter: number;
+}
+
+export const fetchDbSize = async (): Promise<number> => {
+  const res = await fetch(`${BACKEND_URL}/maintenance/size`);
+  const data = await readJson<{ sizeBytes: number }>(res);
+  return data.sizeBytes;
+};
+
+export const cleanupData = async (payload: {
+  targets: CleanupTargets;
+  olderThanDays?: number;
+  projectId?: string;
+}): Promise<CleanupResult> => {
+  const res = await fetch(`${BACKEND_URL}/maintenance/cleanup`, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify(payload),
+  });
+  return readJson<CleanupResult>(res);
+};
+
+export const compactDatabase = async (): Promise<{ sizeBytesBefore: number; sizeBytesAfter: number }> => {
+  const res = await fetch(`${BACKEND_URL}/maintenance/compact`, { method: 'POST' });
+  return readJson<{ sizeBytesBefore: number; sizeBytesAfter: number }>(res);
+};
+
+// ---------------------------------------------------------------------------
+// Registro de acciones ejecutadas (chat_actions)
+// ---------------------------------------------------------------------------
+
+export const saveChatAction = async (input: {
+  messageId: string;
+  actionName: string;
+  targetPath?: string;
+  payload?: Record<string, unknown>;
+  status: 'pending' | 'success' | 'error';
+  result?: Record<string, unknown>;
+}): Promise<void> => {
+  await fetch(`${BACKEND_URL}/actions`, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify(input),
   });
 };

@@ -25,13 +25,21 @@ export const FileAutocomplete: React.FC<FileAutocompleteProps> = ({
   const [filteredFiles, setFilteredFiles] = useState<string[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [triggerPosition, setTriggerPosition] = useState<number | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     setFilteredFiles([...files].sort((a, b) => a.localeCompare(b)));
   }, [files]);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Auto-grow del textarea según el contenido
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const nextValue = e.target.value;
     onChange(nextValue);
 
@@ -60,7 +68,7 @@ export const FileAutocomplete: React.FC<FileAutocompleteProps> = ({
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (isOpen && filteredFiles.length > 0) {
       switch (e.key) {
         case 'ArrowDown':
@@ -83,7 +91,8 @@ export const FileAutocomplete: React.FC<FileAutocompleteProps> = ({
       }
     }
 
-    if (e.key === 'Enter' && !isOpen && onEnter) {
+    if (e.key === 'Enter' && !e.shiftKey && !isOpen && onEnter) {
+      e.preventDefault();
       onEnter();
     }
   };
@@ -101,15 +110,15 @@ export const FileAutocomplete: React.FC<FileAutocompleteProps> = ({
 
   return (
     <div className="relative flex-1">
-      <input
+      <textarea
         ref={inputRef}
-        type="text"
+        rows={1}
         value={value}
         onChange={handleInputChange}
         onKeyDown={handleKeyDown}
         disabled={disabled}
         placeholder={placeholder}
-        className={className}
+        className={`${className} w-full resize-none`}
       />
 
       {isOpen && filteredFiles.length > 0 && (

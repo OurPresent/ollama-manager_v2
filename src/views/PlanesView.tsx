@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { streamChatCompletion, loadOllamaModel, stopOllamaModel } from '../services/ollama';
+import { loadOllamaModel, stopOllamaModel, streamChatCompletion } from '../services/ollama';
 import { parseAndSaveMemoryJson } from '../services/memoryDb';
-import { executeAllActions, formatActionResult } from '../services/fileActions';
+import { runAgentToolLoop, ACTION_SPEC } from '../services/agentToolLoop';
+import { approvalSystem, ApprovalRequest } from '../services/approvalSystem';
 import {
   saveTaskLogToSqlite,
   createPlan,
@@ -12,6 +13,8 @@ import {
   createPlanSteps,
   fetchPlanSteps,
   updatePlanStep,
+  fetchActivePlanRun,
+  updatePlanClient,
   PlanStepDto,
 } from '../services/apiDb';
 import type { PersistedAgent } from '../types';
@@ -26,6 +29,8 @@ import {
   Users,
   RefreshCw,
   AlertTriangle,
+  XCircle,
+  Send,
 } from 'lucide-react';
 
 interface Props {
@@ -80,6 +85,14 @@ export const PlanesView: React.FC<Props> = ({ selectedModel, projectInfo, projec
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
   const [executingActions, setExecutingActions] = useState(false);
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
+  const [planId, setPlanId] = useState<string | null>(null);
+  const [planConfirmed, setPlanConfirmed] = useState(false);
+  const [executionMode, setExecutionMode] = useState<'agents' | 'model'>('agents');
+  const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
+
+  const [directInput, setDirectInput] = useState('');
+  const [directMessages, setDirectMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+  const [directSending, setDirectSending] = useState(false);
 
   const [runId, setRunId] = useState<string | null>(null);
   const [steps, setSteps] = useState<PlanStepDto[]>([]);
@@ -93,6 +106,14 @@ export const PlanesView: React.FC<Props> = ({ selectedModel, projectInfo, projec
   const planInputRef = useRef<HTMLTextAreaElement>(null);
   const runningCardRef = useRef<HTMLDivElement>(null);
   const auditOutputRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    return approvalSystem.subscribe(setPendingApprovals);
+  }, []);
+
+  const handleApprovalDecision = (requestId: string, decision: 'approved' | 'rejected' | 'alternative', selectedAlternative?: number) => {
+    approvalSystem.resolveApproval(requestId, decision, selectedAlternative);
+  };
 
   const activeAgents = agents.filter((a) => a.isActive !== false);
   const orderedByRole = useMemo(
@@ -115,6 +136,60 @@ export const PlanesView: React.FC<Props> = ({ selectedModel, projectInfo, projec
         .map((a) => a.id);
     });
   }, [agents]);
+
+  // Resume del plan activo desde la BD (sobrevive a cambio de pantalla y fallos)
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      if (!projectInfo.id) return;
+      try {
+        const { run: activeRun, plan: activePlan } = await fetchActivePlanRun(projectInfo.id);
+        if (cancelled) return;
+        if (activeRun && activePlan) {
+          setGoal(String(activePlan.goal ?? ''));
+          setPlan(String(activePlan.content ?? ''));
+          setPlanId(String(activeRun.plan_id ?? ''));
+          setRunId(String(activeRun.id ?? ''));
+          setPlanConfirmed(true);
+          try {
+            const stepsData = await fetchPlanSteps(String(activeRun.id));
+            if (!cancelled) setSteps(stepsData);
+          } catch (err) {
+            console.error('Error cargando pasos del plan activo:', err);
+          }
+        } else {
+          const draftKey = `llmx_plan_draft_${projectInfo.id}`;
+          const saved = localStorage.getItem(draftKey);
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved) as { goal?: string; selectedAgentIds?: string[] };
+              if (parsed.goal) setGoal(parsed.goal);
+              if (Array.isArray(parsed.selectedAgentIds) && parsed.selectedAgentIds.length > 0) {
+                setSelectedAgentIds(parsed.selectedAgentIds);
+              }
+            } catch {
+              // borrador corrupto, ignorar
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error reanudando el plan:', err);
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectInfo.id]);
+
+  // Guardar borrador del plan (goal + agentes) mientras no esté confirmado
+  useEffect(() => {
+    if (!projectInfo.id || planConfirmed) return;
+    localStorage.setItem(
+      `llmx_plan_draft_${projectInfo.id}`,
+      JSON.stringify({ goal, selectedAgentIds })
+    );
+  }, [projectInfo.id, goal, selectedAgentIds, planConfirmed]);
 
   const toggleSelectAgent = (id: string) => {
     setSelectedAgentIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -184,21 +259,7 @@ Ejemplo de uso:
       );
 
       let finalPlan = accumulated;
-      if (projectPath) {
-        setExecutingActions(true);
-        const { cleanResponse, results } = await executeAllActions(accumulated, projectPath);
-        if (results.length > 0) {
-          let actionResultsText = '\n\n---\n### 📋 Resultados de acciones:\n\n';
-          results.forEach((r) => {
-            actionResultsText += formatActionResult(r.action, r.result) + '\n\n';
-          });
-          finalPlan = cleanResponse + actionResultsText;
-        } else {
-          finalPlan = cleanResponse || accumulated;
-        }
-        setPlan(finalPlan);
-        setExecutingActions(false);
-      }
+      setPlan(finalPlan);
 
       if (projectInfo.id) {
         try {
@@ -217,6 +278,23 @@ Ejemplo de uso:
     } finally {
       setIsGeneratingPlan(false);
       setExecutingActions(false);
+      setPlanConfirmed(false);
+    }
+  };
+
+  const handleConfirmPlan = async () => {
+    if (!plan) return;
+    setPlanConfirmed(true);
+    if (planId && projectInfo.id) {
+      try {
+        await updatePlanClient(planId, {
+          title: goal.slice(0, 80),
+          goal,
+          content: plan,
+        });
+      } catch (err) {
+        console.error('Error actualizando el plan:', err);
+      }
     }
   };
 
@@ -282,37 +360,28 @@ Ejemplo de uso:
 
     let currentOutput = '';
     try {
-      await streamChatCompletion(
-        agentModel,
-        [
-          { role: 'system', content: agent.systemPrompt },
-          { role: 'user', content: buildPromptForAgent(agent, feedback) },
-        ],
-        (chunk) => {
+      const result = await runAgentToolLoop({
+        model: agentModel,
+        systemPrompt: agent.systemPrompt,
+        userPrompt: buildPromptForAgent(agent, feedback),
+        projectPath,
+        recordMessageId: step.id,
+        onText: (chunk) => {
           currentOutput += chunk;
           patchStep(step.id, { output: currentOutput });
-        }
-      );
+        },
+        onToolResult: (_action, _result, summary) => {
+          currentOutput += `\n${summary}`;
+          patchStep(step.id, { output: currentOutput });
+        },
+      });
 
-      let finalOutput = currentOutput;
-      if (projectPath) {
-        const { cleanResponse, results } = await executeAllActions(currentOutput, projectPath);
-        if (results.length > 0) {
-          let actionResultsText = '\n\n---\n📋 Acciones ejecutadas:\n';
-          results.forEach((r) => {
-            const status = r.result.success ? '✅' : '❌';
-            actionResultsText += `\n${status} \`${r.action.path}\`: ${r.result.success ? 'OK' : (r.result.error || 'Error')}`;
-          });
-          finalOutput = cleanResponse + actionResultsText;
-        } else {
-          finalOutput = cleanResponse || currentOutput;
-        }
-        patchStep(step.id, { output: finalOutput });
-        try {
-          await updatePlanStep(step.id, { output: finalOutput });
-        } catch {
-          // best-effort
-        }
+      const finalOutput = result.finalText + result.summaries;
+      patchStep(step.id, { output: finalOutput });
+      try {
+        await updatePlanStep(step.id, { output: finalOutput });
+      } catch {
+        // best-effort
       }
 
       // Pausa de interrupción: espera la revisión del usuario
@@ -373,6 +442,10 @@ Ejemplo de uso:
 
   const handleStartStaged = async () => {
     if (!selectedModel || !plan) return;
+    if (!planConfirmed) {
+      setError('Confirma primero el enfoque con el botón "Usar este enfoque".');
+      return;
+    }
     setError('');
     if (activeAgents.length === 0) {
       setError('No hay agentes activos en la base de datos. Actívalos en la vista Agentes.');
@@ -392,6 +465,7 @@ Ejemplo de uso:
           goal,
           content: plan,
         });
+        setPlanId(planId);
         newRunId = await startPlanRun(planId);
         const stepIds = await createPlanSteps(
           newRunId,
@@ -413,6 +487,48 @@ Ejemplo de uso:
       setError('No se pudo iniciar la ejecución por etapas. Revisa que haya un proyecto activo.');
     } finally {
       setStartingPlan(false);
+    }
+  };
+
+  const handleDirectSend = async () => {
+    if (!selectedModel || !directInput.trim() || directSending) return;
+    const prompt = directInput.trim();
+    setDirectInput('');
+    setDirectMessages((prev) => [...prev, { role: 'user' as const, content: prompt }]);
+    setDirectSending(true);
+    setError('');
+    let acc = '';
+    const appendAssistant = (content: string) => {
+      acc = content;
+      setDirectMessages((prev) => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        if (last && last.role === 'assistant') {
+          next[next.length - 1] = { role: 'assistant', content };
+        } else {
+          next.push({ role: 'assistant', content });
+        }
+        return next;
+      });
+    };
+    const sys = `Eres un ingeniero que construye el producto directamente sobre el proyecto.${ACTION_SPEC}\n\nPLAN TÉCNICO:\n${plan || 'Aún sin plan.'}`;
+    const userMsg = `PROYECTO: ${projectInfo.name}\nRUTA: ${projectPath || 'No especificada'}\n\nOBJETIVO:\n${goal || 'No definido'}\n\nTAREA DEL USUARIO:\n${prompt}`;
+    try {
+      const result = await runAgentToolLoop({
+        model: selectedModel,
+        systemPrompt: sys,
+        userPrompt: userMsg,
+        projectPath,
+        onText: (chunk) => appendAssistant(acc + chunk),
+        onToolResult: (_action, _result, summary) => appendAssistant(acc + `\n${summary}`),
+      });
+      appendAssistant(result.finalText + result.summaries);
+      await parseAndSaveMemoryJson(projectInfo.name, result.finalText).catch(() => undefined);
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? err.message : 'Error en la construcción directa con el modelo.');
+    } finally {
+      setDirectSending(false);
     }
   };
 
@@ -503,6 +619,69 @@ Ejemplo de uso:
         </div>
       )}
 
+      {/* Modo de ejecución */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs font-mono text-zinc-500 dark:text-zinc-400">Modo de construcción:</span>
+        <div className="flex gap-1 bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-1">
+          <button
+            onClick={() => setExecutionMode('agents')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-mono text-xs transition ${
+              executionMode === 'agents'
+                ? 'bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-300 dark:border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 border border-transparent'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" /> Ejecutar Agentes
+          </button>
+          <button
+            onClick={() => setExecutionMode('model')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-mono text-xs transition ${
+              executionMode === 'model'
+                ? 'bg-amber-50 dark:bg-emerald-500/10 border border-amber-300 dark:border-emerald-500/30 text-amber-600 dark:text-emerald-400'
+                : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 border border-transparent'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" /> Directamente con el Modelo
+          </button>
+        </div>
+        <span className="text-[10px] font-mono text-zinc-400">
+          {executionMode === 'agents'
+            ? 'Orquesta los agentes del proyecto por etapas (revisión manual)'
+            : 'El modelo construye directamente sobre el proyecto, ejecutando acciones de Python'}
+        </span>
+      </div>
+
+      {/* Aprobaciones pendientes (acciones de escritura/borrado) */}
+      {pendingApprovals.length > 0 && (
+        <div className="space-y-3">
+          {pendingApprovals.map((approval) => (
+            <div key={approval.id} className="bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/30 rounded-xl p-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-500 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <h3 className="text-sm font-mono font-bold text-amber-700 dark:text-amber-300 mb-1">{approval.title}</h3>
+                  <p className="text-xs font-mono text-zinc-500 dark:text-zinc-400 mb-2">{approval.description}</p>
+                  <div className="flex gap-2 mt-3">
+                    <button
+                      onClick={() => handleApprovalDecision(approval.id, 'approved')}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-300 dark:border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 rounded transition text-xs font-mono"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Aprobar
+                    </button>
+                    <button
+                      onClick={() => handleApprovalDecision(approval.id, 'rejected')}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 dark:bg-rose-500/10 border border-rose-300 dark:border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 rounded transition text-xs font-mono"
+                    >
+                      <XCircle className="w-3.5 h-3.5" /> Rechazar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* 1. Definición del Plan */}
       <section className="bg-white/80 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-xl p-5 space-y-4">
         <h2 className="text-lg font-mono font-semibold text-sky-600 dark:text-blue-400 flex items-center gap-2">
@@ -531,6 +710,13 @@ Ejemplo de uso:
           )}
         </div>
 
+        {isGeneratingPlan && (
+          <div className="flex items-center gap-2 text-xs font-mono text-sky-600 dark:text-blue-400">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            Pensando… Escribiendo plan con IA… ({plan.length} caracteres)
+          </div>
+        )}
+
         {plan && (
           <div className="mt-4">
             <label className="block font-mono text-xs text-zinc-500 dark:text-zinc-400 mb-1">Plan Confirmado:</label>
@@ -540,11 +726,26 @@ Ejemplo de uso:
               onChange={(e) => setPlan(e.target.value)}
               className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg p-3 font-mono text-xs text-zinc-700 dark:text-zinc-300 focus:outline-none resize-none"
             />
+            <div className="flex items-center gap-3 mt-2">
+              <button
+                onClick={handleConfirmPlan}
+                disabled={!plan || planConfirmed}
+                className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-300 dark:border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 px-4 py-2 rounded-lg font-mono text-xs transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" /> Usar este enfoque
+              </button>
+              {planConfirmed && (
+                <span className="text-xs font-mono text-emerald-600 dark:text-emerald-400">
+                  Enfoque confirmado ✓ — puedes iniciar las etapas
+                </span>
+              )}
+            </div>
           </div>
         )}
       </section>
 
       {/* 1.5 Selección de Agentes del Pipeline */}
+      {executionMode === 'agents' && (
       <section className="bg-white/80 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-xl p-5 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-mono font-semibold text-amber-600 dark:text-emerald-400 flex items-center gap-2">
@@ -649,17 +850,19 @@ Ejemplo de uso:
           </>
         )}
       </section>
+      )}
 
       {/* 2. Ejecución por etapas */}
-      {plan && (
+      {executionMode === 'agents' && plan && (
         <section className="bg-white/80 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-xl p-5 space-y-4">
           <div className="flex justify-between items-center">
             <h2 className="text-lg font-mono font-semibold text-emerald-600 dark:text-emerald-400">2️⃣ Ejecución por Etapas (revisión manual)</h2>
             {steps.length === 0 && (
               <button
                 onClick={handleStartStaged}
-                disabled={startingPlan || pipelineAgents.length === 0}
-                className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-300 dark:border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 px-5 py-2 rounded-lg font-mono text-sm transition"
+                disabled={startingPlan || pipelineAgents.length === 0 || !planConfirmed}
+                className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-300 dark:border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 px-5 py-2 rounded-lg font-mono text-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
+                title={planConfirmed ? '' : 'Confirma primero el enfoque del plan'}
               >
                 {startingPlan ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
                 Iniciar etapas
@@ -807,6 +1010,74 @@ Ejemplo de uso:
               {completedSteps.length} de {steps.length} etapas completadas
             </p>
           )}
+        </section>
+      )}
+
+      {/* 2b. Construcción directa con el modelo */}
+      {executionMode === 'model' && plan && (
+        <section className="bg-white/80 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-xl p-5 space-y-4">
+          <div className="flex justify-between items-center">
+            <h2 className="text-lg font-mono font-semibold text-amber-600 dark:text-emerald-400">2️⃣ Construcción Directa (el modelo ejecuta)</h2>
+            <span className="text-[10px] font-mono text-zinc-400">
+              {projectPath ? `Ruta: ${projectPath}` : 'Sin ruta de proyecto definida'}
+            </span>
+          </div>
+
+          <p className="text-xs font-sans text-zinc-500 dark:text-zinc-400">
+            En este modo el modelo construye el producto directamente sobre la ruta del proyecto, ejecutando
+            acciones de Python (crear/editar archivos, instalar dependencias, ejecutar scripts, verificar con tests).
+            Si no hay ruta definida, el modelo solo te explicará el plan sin tocar el disco.
+          </p>
+
+          {/* Mini-chat de construcción */}
+          <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden">
+            <div className="h-72 overflow-y-auto p-4 space-y-3">
+              {directMessages.length === 0 && (
+                <p className="text-xs font-mono text-zinc-400 text-center pt-10">
+                  Pide al modelo que implemente una parte del plan. Ej: "Crea los modelos de base de datos" o "Implementa la autenticación".
+                </p>
+              )}
+              {directMessages.map((msg, i) => (
+                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div
+                    className={`max-w-[80%] rounded-lg px-3 py-2 text-xs font-mono whitespace-pre-wrap break-words border ${
+                      msg.role === 'user'
+                        ? 'bg-sky-50 dark:bg-blue-500/10 border-sky-200 dark:border-blue-500/30 text-sky-800 dark:text-sky-200'
+                        : 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300'
+                    }`}
+                  >
+                    {msg.content}
+                  </div>
+                </div>
+              ))}
+              {directSending && (
+                <div className="flex items-center gap-2 text-xs font-mono text-zinc-400">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" /> Ejecutando acciones en el proyecto…
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2 border-t border-zinc-200 dark:border-zinc-800 p-3">
+              <input
+                value={directInput}
+                onChange={(e) => setDirectInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleDirectSend();
+                  }
+                }}
+                placeholder="Instrucción de construcción para el modelo…"
+                className="flex-1 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2 text-xs font-mono text-zinc-700 dark:text-zinc-300 focus:outline-none focus:border-amber-400 dark:focus:border-emerald-500/50"
+              />
+              <button
+                onClick={handleDirectSend}
+                disabled={directSending || !directInput.trim()}
+                className="flex items-center gap-2 bg-amber-50 dark:bg-emerald-500/10 border border-amber-300 dark:border-emerald-500/30 text-amber-600 dark:text-emerald-400 hover:bg-amber-100 dark:hover:bg-emerald-500/20 px-4 py-2 rounded-lg font-mono text-xs transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Send className="w-3.5 h-3.5" /> Enviar
+              </button>
+            </div>
+          </div>
         </section>
       )}
     </div>

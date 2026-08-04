@@ -195,6 +195,50 @@ export const FigmaView: React.FC = () => {
         </div>
       )}
 
+      {/* Paso a paso: cómo cargar un archivo de Figma */}
+      <details className="group bg-white/80 dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 rounded-xl p-5 space-y-3">
+        <summary className="cursor-pointer list-none flex items-center gap-2 font-mono font-bold text-sm text-zinc-800 dark:text-zinc-100 hover:text-emerald-600 dark:hover:text-emerald-400 transition select-none">
+          <Layers className="w-4 h-4 text-emerald-500 dark:text-emerald-400" />
+          Cómo cargar un archivo de Figma (paso a paso)
+          <span className="ml-auto text-zinc-400 group-open:rotate-180 transition-transform">▾</span>
+        </summary>
+        <ol className="space-y-2 mt-3 text-xs font-mono text-zinc-600 dark:text-zinc-300 leading-relaxed">
+          <li className="flex gap-2">
+            <span className="shrink-0 w-5 h-5 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 flex items-center justify-center text-[10px]">1</span>
+            Abre el archivo de diseño en Figma (web o app de escritorio).
+          </li>
+          <li className="flex gap-2">
+            <span className="shrink-0 w-5 h-5 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 flex items-center justify-center text-[10px]">2</span>
+            Asegúrate de tener acceso de <strong>edición</strong> al archivo (debe estar compartido con tu cuenta).
+          </li>
+          <li className="flex gap-2">
+            <span className="shrink-0 w-5 h-5 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 flex items-center justify-center text-[10px]">3</span>
+            Haz clic <strong>derecho sobre la pestaña del archivo</strong> en la barra superior de Figma y elige <span className="px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700">Copy link</span> (Copiar enlace).
+          </li>
+          <li className="flex gap-2">
+            <span className="shrink-0 w-5 h-5 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 flex items-center justify-center text-[10px]">4</span>
+            Pega el enlace en el campo <strong>Archivo de Figma</strong> de la izquierda. Tiene este formato:{' '}
+            <span className="px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-emerald-600 dark:text-emerald-300 break-all">
+              https://www.figma.com/file/FILEKEY/Nombre-del-archivo
+            </span>
+            <span className="block text-zinc-400 mt-1">
+              El <strong>File Key</strong> es el código entre <span className="font-mono">/file/</span> y <span className="font-mono">/</span> (también puedes pegar solo ese código).
+            </span>
+          </li>
+          <li className="flex gap-2">
+            <span className="shrink-0 w-5 h-5 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 flex items-center justify-center text-[10px]">5</span>
+            Pulsa <strong>Cargar archivo</strong>: la app pedirá la lista de frames al API de Figma.
+          </li>
+          <li className="flex gap-2">
+            <span className="shrink-0 w-5 h-5 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 flex items-center justify-center text-[10px]">6</span>
+            Selecciona un <strong>frame</strong> para ver su render, y luego pulsa <strong>Importar plantilla</strong> para escribir .tsx / .html / .css / .png en <span className="font-mono">figma-imports/</span> del proyecto activo.
+          </li>
+        </ol>
+        <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed pt-1">
+          Consejo: los archivos "community" o de solo lectura no se pueden importar; duplícalos a tu cuenta (File → Save as copy) para obtener permisos de edición.
+        </p>
+      </details>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Columna izquierda: token + archivo */}
         <div className="space-y-6">

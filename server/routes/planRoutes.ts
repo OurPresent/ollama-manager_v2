@@ -9,6 +9,7 @@ import {
   finishPlanRun,
   listPlanRuns,
   getPlanRunById,
+  getLatestActiveRunForProject,
   insertAgentRun,
   finishAgentRun,
   listAgentRuns,
@@ -33,6 +34,23 @@ router.get('/', async (req, res) => {
   try {
     const { projectId } = req.query;
     res.json(await listPlans(typeof projectId === 'string' ? projectId : undefined));
+  } catch (error) {
+    handleRouteError(error, res);
+  }
+});
+
+router.get('/resume', async (req, res) => {
+  try {
+    const { projectId } = z
+      .object({ projectId: z.string().min(1) })
+      .parse(req.query);
+    const run = await getLatestActiveRunForProject(projectId);
+    if (!run) {
+      res.json({ run: null, plan: null });
+      return;
+    }
+    const plan = await getPlanById(String(run.plan_id));
+    res.json({ run, plan });
   } catch (error) {
     handleRouteError(error, res);
   }

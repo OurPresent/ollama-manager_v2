@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Sun, Moon, Monitor, Server, Cpu, Palette, Save, AlertTriangle, Terminal, Globe, Download, Upload, RefreshCw, MonitorSmartphone, DatabaseBackup, HardDrive } from 'lucide-react';
+import { Settings, Sun, Moon, Monitor, Server, Cpu, Palette, Save, AlertTriangle, Terminal, Globe, Download, Upload, RefreshCw, MonitorSmartphone, DatabaseBackup, HardDrive, Trash2 } from 'lucide-react';
 import { checkOllamaStatus, setCachedOllamaBaseUrl, startOllama, stopOllama } from '../services/ollama';
 import { checkDockerOllamaStatus, startOllamaDocker, stopOllamaDocker, restartOllamaDocker, getDockerInfo, DockerStatus, DockerInfo } from '../services/dockerControl';
 import { AppSettings, getAppSettings, saveAppSettings, Theme } from '../services/systemApi';
@@ -13,6 +13,7 @@ import {
   BackupPayload,
 } from '../services/systemApi';
 import { getBackendUrl } from '../services/backend';
+import { fetchDbSize, cleanupData, compactDatabase, CleanupTargets } from '../services/apiDb';
 import { useToast } from '../components/Toast';
 
 interface SettingsViewProps {
@@ -36,6 +37,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onThemeSaved, onOlla
   const [envReport, setEnvReport] = useState<EnvReport | null>(null);
   const [deviceBusy, setDeviceBusy] = useState(false);
   const [backupMsg, setBackupMsg] = useState('');
+  const [dbSize, setDbSize] = useState(0);
+  const [cleanupTargets, setCleanupTargets] = useState<CleanupTargets>({
+    chats: true,
+    opencode: true,
+    plans: true,
+    taskLogs: true,
+    queries: true,
+    graph: true,
+    audit: true,
+    systemLogs: true,
+    approvals: true,
+  });
+  const [cleanupOlderDays, setCleanupOlderDays] = useState(0);
+  const [maintenanceBusy, setMaintenanceBusy] = useState(false);
+  const [maintenanceMsg, setMaintenanceMsg] = useState('');
   const { showToast } = useToast();
 
   useEffect(() => {
@@ -59,6 +75,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onThemeSaved, onOlla
 
   useEffect(() => {
     checkServicesStatus();
+  }, []);
+
+  const loadDbSize = async () => {
+    try {
+      setDbSize(await fetchDbSize());
+    } catch (error) {
+      console.error('Error obteniendo tamaño de la base de datos:', error);
+    }
+  };
+
+  useEffect(() => {
+    loadDbSize();
   }, []);
 
   const applyTheme = (selectedTheme: Theme) => {
@@ -267,6 +295,51 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onThemeSaved, onOlla
       i++;
     }
     return `${v.toFixed(1)} ${units[i]}`;
+  };
+
+  const handleCleanup = async () => {
+    if (!Object.values(cleanupTargets).some(Boolean)) {
+      showToast('error', 'Limpieza', 'Selecciona al menos un tipo de dato a limpiar.');
+      return;
+    }
+    if (!window.confirm('Se eliminarán permanentemente los datos seleccionados. ¿Continuar?')) return;
+    setMaintenanceBusy(true);
+    setMaintenanceMsg('');
+    try {
+      const result = await cleanupData({
+        targets: cleanupTargets,
+        olderThanDays: cleanupOlderDays > 0 ? cleanupOlderDays : undefined,
+      });
+      const total = Object.values(result.counts).reduce((a, b) => a + (b || 0), 0);
+      setMaintenanceMsg(
+        `Limpieza completada (${total} registros). BD: ${formatBytes(result.sizeBytesBefore)} → ${formatBytes(result.sizeBytesAfter)}`
+      );
+      await loadDbSize();
+      showToast('success', 'Limpieza', `${total} registros eliminados.`);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Error durante la limpieza';
+      setMaintenanceMsg(msg);
+      showToast('error', 'Limpieza', msg);
+    } finally {
+      setMaintenanceBusy(false);
+    }
+  };
+
+  const handleCompact = async () => {
+    setMaintenanceBusy(true);
+    setMaintenanceMsg('');
+    try {
+      const r = await compactDatabase();
+      setMaintenanceMsg(`Base de datos compactada: ${formatBytes(r.sizeBytesBefore)} → ${formatBytes(r.sizeBytesAfter)}`);
+      await loadDbSize();
+      showToast('success', 'Compactación', 'Base de datos compactada.');
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Error al compactar la base de datos';
+      setMaintenanceMsg(msg);
+      showToast('error', 'Compactación', msg);
+    } finally {
+      setMaintenanceBusy(false);
+    }
   };
 
   return (
@@ -644,6 +717,91 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onThemeSaved, onOlla
         {backupMsg && (
           <p className={`text-xs font-mono ${backupMsg.startsWith('Respaldo') || backupMsg.startsWith('Base') ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
             {backupMsg}
+          </p>
+        )}
+      </div>
+
+      {/* Sección Mantenimiento y limpieza */}
+      <div className="bg-white/80 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <Trash2 className="w-6 h-6 text-rose-500 dark:text-rose-400" />
+          <h2 className="text-lg font-mono font-bold text-zinc-700 dark:text-zinc-100">Mantenimiento y limpieza</h2>
+          <div className="flex-1" />
+          <span className="text-[10px] font-mono text-zinc-400">Tamaño actual: <strong className="text-zinc-700 dark:text-zinc-200">{formatBytes(dbSize)}</strong></span>
+        </div>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          Elimina datos acumulados (chats, ejecuciones, historial) y compacta la base de datos SQLite para recuperar espacio.
+        </p>
+
+        <div>
+          <p className="text-[10px] font-mono text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-2">Datos a limpiar:</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+            {[
+              { key: 'chats', label: 'Chats y mensajes' },
+              { key: 'opencode', label: 'Sesiones OpenCode' },
+              { key: 'plans', label: 'Planes finalizados' },
+              { key: 'taskLogs', label: 'Bitácoras .md (task_logs)' },
+              { key: 'queries', label: 'Consultas del proyecto' },
+              { key: 'graph', label: 'Grafo de memoria' },
+              { key: 'audit', label: 'Auditoría' },
+              { key: 'systemLogs', label: 'Logs del sistema' },
+              { key: 'approvals', label: 'Aprobaciones resueltas' },
+            ].map((item) => (
+              <label
+                key={item.key}
+                className="flex items-center gap-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2 cursor-pointer hover:border-rose-300 dark:hover:border-rose-500/40 transition"
+              >
+                <input
+                  type="checkbox"
+                  checked={cleanupTargets[item.key as keyof CleanupTargets]}
+                  onChange={(e) =>
+                    setCleanupTargets((prev) => ({ ...prev, [item.key]: e.target.checked }))
+                  }
+                  className="accent-rose-500"
+                />
+                <span className="text-xs font-mono text-zinc-700 dark:text-zinc-300">{item.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-4">
+          <div>
+            <label className="block text-[10px] font-mono text-zinc-500 dark:text-zinc-400 mb-1.5">
+              Solo registros con más de (días) — 0 = todos
+            </label>
+            <input
+              type="number"
+              min={0}
+              value={cleanupOlderDays}
+              onChange={(e) => setCleanupOlderDays(Math.max(0, Number(e.target.value)))}
+              className="w-32 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2 font-mono text-xs text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-rose-400 dark:focus:border-rose-500/50"
+            />
+          </div>
+          <button
+            onClick={handleCleanup}
+            disabled={maintenanceBusy}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-rose-50 dark:bg-rose-500/10 border border-rose-300 dark:border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 font-mono text-xs transition disabled:opacity-50"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Ejecutar limpieza
+          </button>
+          <button
+            onClick={handleCompact}
+            disabled={maintenanceBusy}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-50 dark:bg-emerald-500/10 border border-amber-300 dark:border-emerald-500/30 text-amber-600 dark:text-emerald-400 hover:bg-amber-100 dark:hover:bg-emerald-500/20 font-mono text-xs transition disabled:opacity-50"
+          >
+            <HardDrive className="w-3.5 h-3.5" />
+            Compactar base de datos
+          </button>
+        </div>
+
+        {maintenanceBusy && (
+          <p className="text-xs font-mono text-zinc-500 dark:text-zinc-400">Procesando…</p>
+        )}
+        {maintenanceMsg && (
+          <p className={`text-xs font-mono ${maintenanceMsg.includes('completada') || maintenanceMsg.includes('compactada') ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
+            {maintenanceMsg}
           </p>
         )}
       </div>

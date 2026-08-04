@@ -68,6 +68,18 @@ export const getPlanRunById = async (id: string): Promise<DbRow | null> => {
   return queryOne('SELECT * FROM plan_runs WHERE id = ? LIMIT 1', [id]);
 };
 
+export const getLatestActiveRunForProject = async (
+  projectId: string
+): Promise<DbRow | null> => {
+  return queryOne(
+    `SELECT * FROM plan_runs
+     WHERE project_id = ? AND status = 'running'
+     ORDER BY started_at DESC, rowid DESC
+     LIMIT 1`,
+    [projectId]
+  );
+};
+
 export const insertAgentRun = async (data: {
   agentId: string;
   projectId: string;

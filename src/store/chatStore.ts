@@ -22,6 +22,7 @@ interface ChatState {
   loading: boolean;
   error: string | null;
   loadSessions: (projectId?: string) => Promise<void>;
+  resetForProject: (projectId?: string) => Promise<void>;
   createSession: (title: string, projectId?: string | null, modelName?: string | null) => Promise<ChatSession | null>;
   switchSession: (sessionId: string) => Promise<void>;
   removeSession: (sessionId: string) => Promise<void>;
@@ -52,6 +53,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     } catch (error) {
       set({ error: error instanceof Error ? error.message : 'Error al cargar sesiones', loading: false });
     }
+  },
+
+  resetForProject: async (projectId) => {
+    set({ sessions: [], messagesBySession: {}, currentSessionId: null, error: null });
+    await get().loadSessions(projectId);
   },
 
   createSession: async (title, projectId, modelName) => {

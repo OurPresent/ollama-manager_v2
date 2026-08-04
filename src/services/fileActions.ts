@@ -6,13 +6,13 @@
 
 import { approvalSystem } from './approvalSystem';
 
-interface ActionData {
+export interface ActionData {
   action: string;
   path: string;
   content?: string;
 }
 
-interface ActionResult {
+export interface ActionResult {
   success: boolean;
   result?: string | string[] | Record<string, unknown>;
   error?: string;

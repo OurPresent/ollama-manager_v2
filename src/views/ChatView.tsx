@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { ChatMessage, ProjectInfo } from '../types';
 import { streamChatCompletion } from '../services/ollama';
 import { parseAndSaveMemoryJson } from '../services/memoryDb';
-import { fetchGraphNodes, fetchTaskLogs, saveProjectQuery, fetchProjectFiles, resolveFileReferences, indexProjectFiles } from '../services/apiDb';
+import { fetchGraphNodes, fetchTaskLogs, saveProjectQuery, fetchProjectFiles, resolveFileReferences, indexProjectFiles, saveTaskLogToSqlite } from '../services/apiDb';
 import { executeAllActions, formatActionResult } from '../services/fileActions';
 import { Send, Bot, User, Code, Loader2, Plus, AlertTriangle, CheckCircle, XCircle, FileCode, Trash2, RefreshCw } from 'lucide-react';
 import { approvalSystem, ApprovalRequest } from '../services/approvalSystem';
@@ -33,12 +33,15 @@ export const ChatView: React.FC<Props> = ({ selectedModel, projectInfo, projectC
   const [indexingFiles, setIndexingFiles] = useState(false);
   const chatBottomRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const assistantContentRef = useRef('');
+  const sessionIdRef = useRef<string | null>(null);
+  const isStreamingRef = useRef(false);
 
   const {
     sessions,
     messagesBySession,
     currentSessionId,
-    loadSessions,
+    resetForProject,
     createSession,
     switchSession,
     removeSession,
@@ -48,10 +51,41 @@ export const ChatView: React.FC<Props> = ({ selectedModel, projectInfo, projectC
 
   const messages = currentSessionId ? messagesBySession[currentSessionId] ?? [] : [];
 
-  // Load persisted sessions from SQLite on mount / project change
+  // Load persisted sessions from SQLite on mount / project change.
+  // Al cambiar de proyecto se reinicia el estado y se cargan SOLO las sesiones de ese proyecto.
   useEffect(() => {
-    loadSessions(projectInfo.id);
-  }, [loadSessions, projectInfo.id]);
+    resetForProject(projectInfo.id);
+  }, [resetForProject, projectInfo.id]);
+
+  // Keep streaming state in a ref so the unmount cleanup can detect an in-flight stream
+  useEffect(() => {
+    isStreamingRef.current = isStreaming;
+  }, [isStreaming]);
+
+  // Persistir el borrador del input (no enviado) por sesión
+  const currentDraftKey = currentSessionId ? `llmx_chat_draft_${currentSessionId}` : null;
+  useEffect(() => {
+    if (!currentDraftKey) return;
+    const saved = localStorage.getItem(currentDraftKey);
+    if (saved) setInput(saved);
+  }, [currentDraftKey]);
+
+  useEffect(() => {
+    if (!currentDraftKey) return;
+    localStorage.setItem(currentDraftKey, input);
+  }, [currentDraftKey, input]);
+
+  // Si el chat se desmonta (cambio de pestaña) con un stream en curso,
+  // persistir el contenido parcial del assistant para no perder la respuesta
+  useEffect(() => {
+    return () => {
+      const sid = sessionIdRef.current;
+      if (sid && isStreamingRef.current && assistantContentRef.current.trim()) {
+        persistMessage(sid, { role: 'assistant', content: assistantContentRef.current }, `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`).catch(() => undefined);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Load project files from the backend index (Fase 2.4)
   const loadProjectFiles = useCallback(async () => {
@@ -125,6 +159,7 @@ export const ChatView: React.FC<Props> = ({ selectedModel, projectInfo, projectC
       sessionId = created?.id ?? null;
       if (!sessionId) return;
     }
+    sessionIdRef.current = sessionId;
 
     const sessionMessages = messagesBySession[sessionId] ?? [];
 
@@ -204,12 +239,15 @@ Ejemplo de uso:
 {"action": "write_file", "path": "src/components/Componente.tsx", "content": "// contenido del archivo"}
 </action>
 
-REGLA: Si la respuesta define una nueva decisión relevante, incluye al final un bloque \`\`\`json_memory { ... } \`\`\` para actualizar el Grafo.
+REGLA: AL FINAL de CADA turno, emite SIEMPRE un bloque \`\`\`json_memory { ... } \`\`\` para actualizar la memoria del proyecto. El bloque debe incluir:
+- "bitacora_md": { "titulo": "Resumen corto del turno", "contenido": "Bitácora markdown con lo hecho en este turno: contexto, acciones, decisiones y pendientes" }
+- "nodos_actualizar": [ { "id": "NODE-XXX", "tipo": "ENTIDAD|DECISION|TAREA", "nombre": "...", "contenido": "..." } ] (solo si hay nodos nuevos o cambiados)
 
 INSTRUCCIÓN: Cuando el usuario use el signo $ para referirse a archivos (ej: $archivo.ts), el sistema automáticamente incluirá el contenido de esos archivos en el contexto.`
     };
 
     let assistantContent = '';
+    assistantContentRef.current = '';
     const assistantMessageId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const messagesWithAssistant = [...newMessages, { role: 'assistant' as const, content: '' }];
     setMessages(sessionId, messagesWithAssistant);
@@ -220,6 +258,7 @@ INSTRUCCIÓN: Cuando el usuario use el signo $ para referirse a archivos (ej: $a
         [systemPrompt, ...newMessages],
         (chunk) => {
           assistantContent += chunk;
+          assistantContentRef.current = assistantContent;
           const updated = [...messagesWithAssistant];
           updated[updated.length - 1] = { role: 'assistant', content: assistantContent };
           setMessages(sessionId, updated);
@@ -255,7 +294,24 @@ INSTRUCCIÓN: Cuando el usuario use el signo $ para referirse a archivos (ej: $a
       await persistMessage(sessionId, { role: 'assistant', content: finalContent }, assistantMessageId);
 
       // Parsear si el modelo emitió actualizaciones de memoria
-      await parseAndSaveMemoryJson(projectInfo.name, finalContent);
+      const memorySaved = await parseAndSaveMemoryJson(projectInfo.name, finalContent);
+
+      // Fallback: si el modelo no emitió el bloque json_memory/bitacora_md,
+      // generar un .md de memoria del turno heurísticamente
+      if (!memorySaved) {
+        try {
+          await saveTaskLogToSqlite({
+            taskId: `TURN-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            projectName: projectInfo.name,
+            title: `Turno: ${input.slice(0, 60)}${input.length > 60 ? '...' : ''}`,
+            markdownContent: `# Bitácora del turno\n\n## Pregunta / petición\n${input}\n\n## Respuesta\n${finalContent}`,
+            tags: ['chat', 'turno'],
+            createdAt: new Date().toISOString(),
+          });
+        } catch (error) {
+          console.error('Error guardando bitácora .md del turno:', error);
+        }
+      }
 
       // Registrar la consulta en project_queries (historial de consultas)
       try {
@@ -308,13 +364,6 @@ INSTRUCCIÓN: Cuando el usuario use el signo $ para referirse a archivos (ej: $a
               )}
             </div>
           )}
-          <button
-            onClick={createNewChat}
-            className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-emerald-500/10 border border-amber-300 dark:border-emerald-500/30 text-amber-600 dark:text-emerald-400 hover:bg-amber-100 dark:hover:bg-emerald-500/20 rounded-lg transition font-mono text-xs"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="font-semibold">Nuevo Chat</span>
-          </button>
         </div>
       </header>
 
@@ -417,59 +466,117 @@ INSTRUCCIÓN: Cuando el usuario use el signo $ para referirse a archivos (ej: $a
         </div>
       )}
 
-      {/* Area de Mensajes */}
-      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto space-y-4 pr-2">
-        {messages.map((m, idx) => (
-          <div
-            key={idx}
-            className={`flex gap-3 p-4 rounded-xl font-sans text-sm ${
-              m.role === 'user'
-                ? 'bg-white dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-800/80 ml-12'
-                : 'bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 mr-12'
-            }`}
-          >
-            {m.role === 'user' ? (
-              <User className="w-5 h-5 text-amber-500 dark:text-emerald-400 shrink-0 mt-0.5" />
-            ) : (
-              <Bot className="w-5 h-5 text-sky-500 dark:text-blue-400 shrink-0 mt-0.5" />
-            )}
-            <div className="flex-1 whitespace-pre-wrap font-mono text-xs leading-relaxed text-zinc-700 dark:text-zinc-200">
-              {m.content || (isStreaming && idx === messages.length - 1 && <Loader2 className="w-4 h-4 animate-spin text-amber-500 dark:text-emerald-400" />)}
-            </div>
+      {/* Columna de conversaciones + Chat (2 columnas) */}
+      <div className="flex flex-1 gap-4 min-h-0">
+        {/* Columna de conversaciones */}
+        <aside className="w-60 shrink-0 flex flex-col bg-white/70 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden">
+          <div className="p-3 border-b border-zinc-200 dark:border-zinc-800">
+            <button
+              onClick={createNewChat}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-amber-50 dark:bg-emerald-500/10 border border-amber-300 dark:border-emerald-500/30 text-amber-600 dark:text-emerald-400 hover:bg-amber-100 dark:hover:bg-emerald-500/20 rounded-lg transition font-mono text-xs"
+            >
+              <Plus className="w-4 h-4" /> Nueva conversación
+            </button>
           </div>
-        ))}
-        <div ref={chatBottomRef} />
-      </div>
+          <div className="flex-1 overflow-y-auto p-2 space-y-1">
+            {sessions.length === 0 ? (
+              <p className="text-[10px] font-mono text-zinc-400 text-center pt-6 px-2">
+                Sin conversaciones para este proyecto. Crea una para empezar.
+              </p>
+            ) : (
+              sessions.map((s) => {
+                const active = s.id === currentSessionId;
+                const count = (messagesBySession[s.id] ?? []).length;
+                return (
+                  <div
+                    key={s.id}
+                    className={`group flex items-start gap-2 px-2.5 py-2 rounded-lg border text-left transition cursor-pointer ${
+                      active
+                        ? 'bg-amber-50 dark:bg-emerald-500/10 border-amber-300 dark:border-emerald-500/30'
+                        : 'border-transparent hover:bg-zinc-100 dark:hover:bg-zinc-800/60'
+                    }`}
+                    onClick={() => handleSwitchSession(s.id)}
+                  >
+                    <Bot className="w-4 h-4 text-sky-500 dark:text-blue-400 shrink-0 mt-0.5" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-mono font-semibold text-zinc-700 dark:text-zinc-200">{s.title || 'Nuevo Chat'}</p>
+                      <p className="text-[10px] font-mono text-zinc-400 truncate">
+                        {new Date(s.createdAt).toLocaleString()} · {count} msgs
+                      </p>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteSession(s.id);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-1 rounded text-zinc-400 hover:text-rose-500 dark:hover:text-rose-400 transition"
+                      title="Eliminar conversación"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </aside>
 
-      {/* Input de Chat */}
-      <div className="mt-4 shrink-0 flex gap-2">
-        <FileAutocomplete
-          files={projectFiles}
-          value={input}
-          onChange={setInput}
-          triggerChar="$"
-          disabled={isStreaming}
-          onEnter={handleSend}
-          placeholder="Escribe una consulta sobre la arquitectura o código... Usa $nombre-archivo para referenciar archivos"
-          className="flex-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 font-mono text-xs text-zinc-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 dark:focus:border-emerald-500/50"
-        />
-        {projectInfo.id && (
-          <button
-            onClick={handleReindexFiles}
-            disabled={indexingFiles}
-            title="Reindexar archivos del proyecto"
-            className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-emerald-400 hover:border-amber-300 dark:hover:border-emerald-500/50 px-3 rounded-xl transition flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <RefreshCw className={`w-4 h-4 ${indexingFiles ? 'animate-spin' : ''}`} />
-          </button>
-        )}
-        <button
-          onClick={handleSend}
-          disabled={isStreaming || !input.trim() || !selectedModel}
-          className="bg-amber-50 dark:bg-emerald-500/10 border border-amber-300 dark:border-emerald-500/30 text-amber-600 dark:text-emerald-400 hover:bg-amber-100 dark:hover:bg-emerald-500/20 px-5 rounded-xl transition flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <Send className="w-4 h-4" />
-        </button>
+        {/* Area de mensajes + input */}
+        <div className="flex-1 flex flex-col min-w-0 min-h-0">
+          <div ref={messagesContainerRef} className="flex-1 overflow-y-auto space-y-4 pr-2">
+            {messages.map((m, idx) => (
+              <div
+                key={idx}
+                className={`flex gap-3 p-4 rounded-xl font-sans text-sm ${
+                  m.role === 'user'
+                    ? 'bg-white dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-800/80 ml-12'
+                    : 'bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 mr-12'
+                }`}
+              >
+                {m.role === 'user' ? (
+                  <User className="w-5 h-5 text-amber-500 dark:text-emerald-400 shrink-0 mt-0.5" />
+                ) : (
+                  <Bot className="w-5 h-5 text-sky-500 dark:text-blue-400 shrink-0 mt-0.5" />
+                )}
+                <div className="flex-1 whitespace-pre-wrap font-mono text-xs leading-relaxed text-zinc-700 dark:text-zinc-200">
+                  {m.content || (isStreaming && idx === messages.length - 1 && <Loader2 className="w-4 h-4 animate-spin text-amber-500 dark:text-emerald-400" />)}
+                </div>
+              </div>
+            ))}
+            <div ref={chatBottomRef} />
+          </div>
+
+          {/* Input de Chat */}
+          <div className="mt-4 shrink-0 flex gap-2 items-end">
+            <FileAutocomplete
+              files={projectFiles}
+              value={input}
+              onChange={setInput}
+              triggerChar="$"
+              disabled={isStreaming}
+              onEnter={handleSend}
+              placeholder="Escribe una consulta sobre la arquitectura o código... Usa $nombre-archivo para referenciar archivos"
+              className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 font-mono text-xs text-zinc-800 dark:text-zinc-100 focus:outline-none focus:border-amber-500 dark:focus:border-emerald-500/50"
+            />
+            {projectInfo.id && (
+              <button
+                onClick={handleReindexFiles}
+                disabled={indexingFiles}
+                title="Reindexar archivos del proyecto"
+                className="h-12 w-12 shrink-0 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-emerald-400 hover:border-amber-300 dark:hover:border-emerald-500/50 rounded-xl transition flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <RefreshCw className={`w-5 h-5 ${indexingFiles ? 'animate-spin' : ''}`} />
+              </button>
+            )}
+            <button
+              onClick={handleSend}
+              disabled={isStreaming || !input.trim() || !selectedModel}
+              className="h-12 w-12 shrink-0 bg-amber-50 dark:bg-emerald-500/10 border border-amber-300 dark:border-emerald-500/30 text-amber-600 dark:text-emerald-400 hover:bg-amber-100 dark:hover:bg-emerald-500/20 rounded-xl transition flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Send className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

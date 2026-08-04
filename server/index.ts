@@ -22,6 +22,7 @@ import { skillsRouter } from './routes/skillsRoutes';
 import { integrationsRouter } from './routes/integrationsRoutes';
 import { deviceRouter } from './routes/deviceRoutes';
 import { figmaRouter } from './routes/figmaRoutes';
+import { maintenanceRouter } from './routes/maintenanceRoutes';
 import { stopManagedOpenCodeServer } from './services/opencodeServerManager';
 
 const app = express();
@@ -47,6 +48,7 @@ app.use('/api/skills', skillsRouter);
 app.use('/api/integrations', integrationsRouter);
 app.use('/api/device', deviceRouter);
 app.use('/api/figma', figmaRouter);
+app.use('/api/maintenance', maintenanceRouter);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', service: 'ollama-manager-v2' });

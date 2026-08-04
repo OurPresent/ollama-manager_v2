@@ -59,7 +59,7 @@ coverage/
 
 # AGENTS.md (instrucciones de trabajo local, no se versiona)
 AGENTS.md
-
+markdown/
 
 # Package manager files (optional, uncomment if needed)
 # pnpm-lock.yaml

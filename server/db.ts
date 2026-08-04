@@ -117,3 +117,22 @@ export const replaceDatabase = async (buffer: Buffer): Promise<void> => {
   saveDb();
   console.log('⚡ Base de datos restaurada correctamente.');
 };
+
+/** Compacta la base de datos (VACUUM) para liberar espacio de filas borradas. */
+export const vacuumDb = async (): Promise<void> => {
+  const database = await getDb();
+  database.exec('VACUUM');
+  saveDb();
+};
+
+/** Tamaño en bytes del archivo físico de la base de datos. */
+export const getDbSizeBytes = async (): Promise<number> => {
+  try {
+    if (fs.existsSync(DB_PATH)) {
+      return fs.statSync(DB_PATH).size;
+    }
+  } catch (error) {
+    console.error('Error leyendo el tamaño de la BD:', error);
+  }
+  return 0;
+};

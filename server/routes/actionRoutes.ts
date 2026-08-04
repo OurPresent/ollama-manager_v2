@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { pythonRunner } from '../services/pythonRunner';
 import { writeAuditEvent, writeSystemLog } from '../core/audit';
+import { insertChatAction, listChatActionsByMessage } from '../repositories/chatActionRepository';
 
 const router = Router();
 
@@ -32,5 +33,41 @@ router.post('/execute', async (req, res) => {
     res.status(500).json({ success: false, error: error instanceof Error ? error.message : String(error) });
   }
 });
+
+router.post('/', async (req, res) => {
+  try {
+    const parsed = z
+      .object({
+        messageId: z.string().min(1),
+        actionName: z.string().min(1),
+        targetPath: z.string().optional().default(''),
+        payload: z.record(z.string(), z.unknown()).optional().default({}),
+        status: z.enum(['pending', 'success', 'error']),
+        result: z.record(z.string(), z.unknown()).optional().default({}),
+      })
+      .parse(req.body ?? {});
+    const id = await insertChatAction(parsed);
+    res.json({ status: 'ok', id });
+  } catch (error) {
+    handleError(error, res);
+  }
+});
+
+router.get('/', async (req, res) => {
+  try {
+    const { messageId } = z.object({ messageId: z.string().min(1) }).parse(req.query);
+    res.json(await listChatActionsByMessage(messageId));
+  } catch (error) {
+    handleError(error, res);
+  }
+});
+
+const handleError = (error: unknown, res: import('express').Response): void => {
+  if (error instanceof z.ZodError) {
+    res.status(400).json({ error: error.issues });
+    return;
+  }
+  res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+};
 
 export const actionRouter = router;
